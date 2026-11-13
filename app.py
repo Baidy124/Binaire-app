@@ -1,10 +1,10 @@
-# ================= 🔑 CLÉ OPENAI - C'EST ICI =================
-# 👇👇 COLLE TA CLÉ ICI ENTRE LES GUILLEMETS 👇👇
-# Exemple : OPENAI_API_KEY_FIXE = "sk-proj-abc123..."
-# Tu la trouves sur : https://platform.openai.com/api-keys
-OPENAI_API_KEY_FIXE = "COLLE_TA_CLE_ICI"  # <-- Remplace COLLE_TA_CLE_ICI par ta vraie clé
-OPENAI_VISION_MODEL_FIXE = "gpt-5.5"  # Modèle pour lire la capture
-# 👆👆 FIN CLÉ OPENAI 👆👆
+# ================= 🔑 CLÉ OPENAI AUTOMATIQUE =================
+# NE METS PAS TA CLÉ ICI EN CLAIR, sinon tout le monde la voit sur GitHub !
+# Mets-la dans Streamlit Secrets, 1 fois, et après c'est AUTOMATIQUE.
+# Streamlit Cloud → Manage app → Settings → Secrets → Colle :
+# OPENAI_API_KEY = "sk-proj-ta-clé-ici"
+# OPENAI_VISION_MODEL = "gpt-5.5"
+# Et c'est fini, plus jamais à retaper.
 
 import os
 import base64
@@ -20,7 +20,6 @@ except ImportError:
     OpenAI = None
 
 st.set_page_config(page_title="Binaire - IQ Option / Pocket Option", page_icon="📈", layout="centered")
-
 st.markdown("""
 <style>
     .block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 700px; }
@@ -32,163 +31,107 @@ st.markdown("""
         font-size: 16px !important; font-weight: 600 !important; width: auto !important;
     }
     div[data-testid="stButton"] button:hover { background-color: #C62828 !important; }
-    div[data-testid="stSelectbox"] > div { border-radius: 8px !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ================= FONCTION POUR RÉCUPÉRER LA CLÉ =================
-def get_openai_key():
-    # 1. Priorité : clé tapée dans l'app (session)
-    if "cle_openai_session" in st.session_state and st.session_state.cle_openai_session:
-        return st.session_state.cle_openai_session.strip()
-    # 2. Clé fixe en haut du code
-    if OPENAI_API_KEY_FIXE and OPENAI_API_KEY_FIXE != "COLLE_TA_CLE_ICI" and OPENAI_API_KEY_FIXE.startswith("sk-"):
-        return OPENAI_API_KEY_FIXE.strip()
-    # 3. Secrets Streamlit
+# ================= FONCTION CLÉ AUTOMATIQUE =================
+@st.cache_resource
+def get_client_openai_auto():
+    """Récupère la clé AUTOMATIQUEMENT depuis Secrets / Env, sans rien taper."""
+    cle = None
+    # 1. Streamlit Secrets (c'est là que tu la mets 1 fois)
     try:
-        cle_secrets = st.secrets.get("OPENAI_API_KEY", None)
-        if cle_secrets and cle_secrets.startswith("sk-"):
-            return cle_secrets.strip()
+        cle = st.secrets.get("OPENAI_API_KEY", None)
     except Exception:
-        pass
-    # 4. Variable environnement
-    cle_env = os.getenv("OPENAI_API_KEY")
-    if cle_env and cle_env.startswith("sk-"):
-        return cle_env.strip()
-    return None
-
-def get_openai_model():
+        cle = None
+    # 2. Variable d'environnement (si tu es en local)
+    if not cle:
+        cle = os.getenv("OPENAI_API_KEY")
+    # 3. Si pas de clé, retourne None
+    if not cle or not cle.startswith("sk-"):
+        return None, None
     try:
-        m = st.secrets.get("OPENAI_VISION_MODEL", None)
-        if m: return m
-    except Exception: pass
-    return os.getenv("OPENAI_VISION_MODEL", OPENAI_VISION_MODEL_FIXE)
+        model = st.secrets.get("OPENAI_VISION_MODEL", "gpt-5.5")
+    except Exception:
+        model = os.getenv("OPENAI_VISION_MODEL", "gpt-5.5")
+    try:
+        client = OpenAI(api_key=cle.strip())
+        return client, model
+    except Exception:
+        return None, None
 
-# ================= LISTES =================
-PAIRES_FOREX = ["EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD",
-"EUR/GBP","EUR/JPY","EUR/CHF","EUR/AUD","EUR/CAD","EUR/NZD","GBP/JPY","GBP/CHF","GBP/AUD","GBP/CAD","GBP/NZD",
-"AUD/JPY","AUD/CHF","AUD/CAD","AUD/NZD","NZD/JPY","NZD/CHF","NZD/CAD","CAD/JPY","CAD/CHF","CHF/JPY",
-"EUR/SEK","EUR/NOK","USD/SEK","USD/NOK","USD/SGD","USD/HKD","USD/TRY","USD/ZAR","USD/MXN","USD/BRL",
-"USD/THB","USD/IDR","EUR/SGD","EUR/TRY","EUR/ZAR","GBP/ZAR","EUR/MXN","USD/COP","USD/PEN","EUR/THB","GBP/THB"]
-PAIRES_OTC = ["EUR/USD OTC","GBP/USD OTC","USD/JPY OTC","USD/CHF OTC","AUD/USD OTC","NZD/USD OTC","USD/CAD OTC",
-"EUR/GBP OTC","EUR/JPY OTC","GBP/JPY OTC","AUD/JPY OTC","EUR/AUD OTC","GBP/AUD OTC",
-"EUR/CAD OTC","GBP/CAD OTC","AUD/CAD OTC","EUR/CHF OTC","GBP/CHF OTC",
-"USD/MXN OTC","USD/BRL OTC","USD/ZAR OTC","USD/TRY OTC","USD/THB OTC","EUR/ZAR OTC","GBP/ZAR OTC","EUR/NZD OTC","GBP/NZD OTC"]
+client_auto, model_auto = get_client_openai_auto()
+CLE_ACTIVE = client_auto is not None
+
+PAIRES_FOREX = ["EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD","EUR/GBP","EUR/JPY","EUR/CHF","EUR/AUD","EUR/CAD","EUR/NZD","GBP/JPY","GBP/CHF","GBP/AUD","GBP/CAD","GBP/NZD","AUD/JPY","AUD/CHF","AUD/CAD","AUD/NZD","NZD/JPY","NZD/CHF","NZD/CAD","CAD/JPY","CAD/CHF","CHF/JPY","EUR/SEK","EUR/NOK","USD/SEK","USD/NOK","USD/SGD","USD/HKD","USD/TRY","USD/ZAR","USD/MXN","USD/BRL","USD/THB","USD/IDR","EUR/SGD","EUR/TRY","EUR/ZAR","GBP/ZAR","EUR/MXN","USD/COP","USD/PEN","EUR/THB","GBP/THB"]
+PAIRES_OTC = ["EUR/USD OTC","GBP/USD OTC","USD/JPY OTC","USD/CHF OTC","AUD/USD OTC","NZD/USD OTC","USD/CAD OTC","EUR/GBP OTC","EUR/JPY OTC","GBP/JPY OTC","AUD/JPY OTC","EUR/AUD OTC","GBP/AUD OTC","EUR/CAD OTC","GBP/CAD OTC","AUD/CAD OTC","EUR/CHF OTC","GBP/CHF OTC","USD/MXN OTC","USD/BRL OTC","USD/ZAR OTC","USD/TRY OTC","USD/THB OTC","EUR/ZAR OTC","GBP/ZAR OTC","EUR/NZD OTC","GBP/NZD OTC"]
 ACTIONS = ["AAPL - Apple","TSLA - Tesla","AMZN - Amazon","MSFT - Microsoft","GOOGL - Google","META - Meta","NVDA - Nvidia","NFLX - Netflix","AMD - AMD","INTC - Intel","BA - Boeing","DIS - Disney","PYPL - PayPal","UBER - Uber","COIN - Coinbase","JPM - JPMorgan","BAC - Bank of America","V - Visa","MA - Mastercard","PFE - Pfizer","XOM - Exxon","WMT - Walmart","NKE - Nike","AAPL OTC","TSLA OTC","AMZN OTC","MSFT OTC","GOOGL OTC","META OTC","NVDA OTC"]
 CRYPTO = ["BTC/USD","ETH/USD","LTC/USD","XRP/USD","ADA/USD","SOL/USD","DOT/USD","DOGE/USD","AVAX/USD","LINK/USD","BNB/USD","BTC/USD OTC","ETH/USD OTC","DOGE/USD OTC"]
 INDICES = ["S&P 500","NASDAQ 100","DOW JONES","DAX 40","CAC 40","FTSE 100","NIKKEI 225"]
 MATIERES = ["GOLD - Or","SILVER - Argent","OIL WTI - Pétrole","OIL BRENT - Pétrole Brent","NATURAL GAS - Gaz","COPPER - Cuivre"]
 DXY_LIST = ["Dollar Index (DXY)"]
-
-TICKER_YAHOO = {
-    "Dollar Index (DXY)": "DX-Y.NYB",
-    "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X",
-    "USD/CHF": "USDCHF=X", "AUD/USD": "AUDUSD=X", "NZD/USD": "NZDUSD=X",
-    "USD/CAD": "USDCAD=X", "EUR/GBP": "EURGBP=X", "EUR/JPY": "EURJPY=X",
-    "GBP/JPY": "GBPJPY=X", "AUD/JPY": "AUDJPY=X", "USD/BRL": "USDBRL=X",
-    "USD/MXN": "USDMXN=X", "USD/ZAR": "USDZAR=X",
-    "BTC/USD": "BTC-USD", "ETH/USD": "ETH-USD", "LTC/USD": "LTC-USD", "XRP/USD": "XRP-USD",
-    "DOGE/USD": "DOGE-USD", "SOL/USD": "SOL-USD", "ADA/USD": "ADA-USD", "BNB/USD": "BNB-USD",
-    "AAPL - Apple": "AAPL", "TSLA - Tesla": "TSLA", "AMZN - Amazon": "AMZN", "MSFT - Microsoft": "MSFT",
-    "GOOGL - Google": "GOOGL", "META - Meta": "META", "NVDA - Nvidia": "NVDA", "NFLX - Netflix": "NFLX",
-    "S&P 500": "^GSPC", "NASDAQ 100": "^NDX", "DOW JONES": "^DJI", "DAX 40": "^GDAXI",
-    "CAC 40": "^FCHI", "FTSE 100": "^FTSE", "NIKKEI 225": "^N225",
-    "GOLD - Or": "GC=F", "SILVER - Argent": "SI=F", "OIL WTI - Pétrole": "CL=F", "OIL BRENT - Pétrole Brent": "BZ=F",
-}
+TICKER_YAHOO = {"Dollar Index (DXY)": "DX-Y.NYB","EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X","USD/CHF": "USDCHF=X", "AUD/USD": "AUDUSD=X", "NZD/USD": "NZDUSD=X","USD/CAD": "USDCAD=X", "EUR/GBP": "EURGBP=X", "EUR/JPY": "EURJPY=X","GBP/JPY": "GBPJPY=X", "AUD/JPY": "AUDJPY=X", "USD/BRL": "USDBRL=X","USD/MXN": "USDMXN=X", "USD/ZAR": "USDZAR=X","BTC/USD": "BTC-USD", "ETH/USD": "ETH-USD", "LTC/USD": "LTC-USD", "XRP/USD": "XRP-USD","DOGE/USD": "DOGE-USD", "SOL/USD": "SOL-USD", "ADA/USD": "ADA-USD", "BNB/USD": "BNB-USD","AAPL - Apple": "AAPL", "TSLA - Tesla": "TSLA", "AMZN - Amazon": "AMZN", "MSFT - Microsoft": "MSFT","GOOGL - Google": "GOOGL", "META - Meta": "META", "NVDA - Nvidia": "NVDA", "NFLX - Netflix": "NFLX","S&P 500": "^GSPC", "NASDAQ 100": "^NDX", "DOW JONES": "^DJI", "DAX 40": "^GDAXI","CAC 40": "^FCHI", "FTSE 100": "^FTSE", "NIKKEI 225": "^N225","GOLD - Or": "GC=F", "SILVER - Argent": "SI=F", "OIL WTI - Pétrole": "CL=F", "OIL BRENT - Pétrole Brent": "BZ=F"}
 
 if "mes_paires" not in st.session_state: st.session_state.mes_paires = []
 if "risk_journal" not in st.session_state: st.session_state.risk_journal = []
 if "dxy_cache" not in st.session_state: st.session_state.dxy_cache = None
 if "verifier_clique" not in st.session_state: st.session_state.verifier_clique = False
-if "cle_openai_session" not in st.session_state: st.session_state.cle_openai_session = ""
 
 # ================= ACCUEIL =================
 st.markdown("# Binaire - IQ Option\n/ Pocket Option")
 
+# --- STATUT CLÉ AUTOMATIQUE - TU VOIS TOUT DE SUITE SI ÇA MARCHE ---
+if CLE_ACTIVE:
+    st.success("✅ Clé OpenAI AUTOMATIQUE active - L'IA va lire tes captures toute seule.")
+else:
+    st.error("❌ Clé OpenAI non trouvée. Mets-la 1 fois dans Secrets pour débloquer l'AUTO IA.")
+    with st.expander("👉 Comment mettre ma clé AUTOMATIQUE (1 fois, 30 secondes)"):
+        st.write("1. Va sur https://platform.openai.com/api-keys")
+        st.write("2. Clique **Create new secret key** → Copie ta clé (commence par sk-proj-)")
+        st.write("3. Dans Streamlit Cloud → Ouvre ton app → **Manage app** → **Settings** → **Secrets**")
+        st.write("4. Colle exactement ça :")
+        st.code('OPENAI_API_KEY = "sk-proj-colle-ta-clé-ici"\nOPENAI_VISION_MODEL = "gpt-5.5"', language="toml")
+        st.write("5. Clique **Save** → **Reboot app** → Tu verras ✅ Clé AUTOMATIQUE active")
+        st.write("⚠️ Ne mets JAMAIS ta clé sur GitHub ou dans app.py en clair, sinon on te la vole.")
+
 st.write("Choisir le type")
 type_actif = st.selectbox("Choisir le type", ["💱 Paire Forex", "💱 Paire Forex OTC", "🏢 Action", "₿ Crypto", "📊 Indice", "🥇 Matière Première", "💵 Dollar Index", "➕ Mon actif perso"], index=0, label_visibility="collapsed")
-
 if type_actif == "💱 Paire Forex":
-    st.write("Choisir la paire")
-    actif = st.selectbox("Choisir la paire", PAIRES_FOREX, index=0, label_visibility="collapsed")
+    st.write("Choisir la paire"); actif = st.selectbox("Choisir la paire", PAIRES_FOREX, index=0, label_visibility="collapsed")
 elif type_actif == "💱 Paire Forex OTC":
-    st.write("Choisir la paire OTC")
-    actif = st.selectbox("Choisir la paire OTC", PAIRES_OTC, index=0, label_visibility="collapsed")
+    st.write("Choisir la paire OTC"); actif = st.selectbox("Choisir la paire OTC", PAIRES_OTC, index=0, label_visibility="collapsed")
 elif type_actif == "🏢 Action":
-    st.write("Choisir l'action")
-    actif = st.selectbox("Choisir l'action", ACTIONS, index=0, label_visibility="collapsed")
+    st.write("Choisir l'action"); actif = st.selectbox("Choisir l'action", ACTIONS, index=0, label_visibility="collapsed")
 elif type_actif == "₿ Crypto":
-    st.write("Choisir la crypto")
-    actif = st.selectbox("Choisir la crypto", CRYPTO, index=0, label_visibility="collapsed")
+    st.write("Choisir la crypto"); actif = st.selectbox("Choisir la crypto", CRYPTO, index=0, label_visibility="collapsed")
 elif type_actif == "📊 Indice":
-    st.write("Choisir l'indice")
-    actif = st.selectbox("Choisir l'indice", INDICES, index=0, label_visibility="collapsed")
+    st.write("Choisir l'indice"); actif = st.selectbox("Choisir l'indice", INDICES, index=0, label_visibility="collapsed")
 elif type_actif == "🥇 Matière Première":
-    st.write("Choisir la matière")
-    actif = st.selectbox("Choisir la matière", MATIERES, index=0, label_visibility="collapsed")
+    st.write("Choisir la matière"); actif = st.selectbox("Choisir la matière", MATIERES, index=0, label_visibility="collapsed")
 elif type_actif == "💵 Dollar Index":
-    st.write("Choisir")
-    actif = st.selectbox("Choisir", DXY_LIST, index=0, label_visibility="collapsed")
+    st.write("Choisir"); actif = st.selectbox("Choisir", DXY_LIST, index=0, label_visibility="collapsed")
 else:
     st.write("Ton actif perso")
-    if st.session_state.mes_paires:
-        actif = st.selectbox("Ton actif perso", st.session_state.mes_paires, index=0, label_visibility="collapsed")
-    else:
-        actif = "EUR/USD"
-        st.caption("Tu n'as pas encore d'actif perso.")
+    if st.session_state.mes_paires: actif = st.selectbox("Ton actif perso", st.session_state.mes_paires, index=0, label_visibility="collapsed")
+    else: actif = "EUR/USD"; st.caption("Tu n'as pas encore d'actif perso.")
     nouvel = st.text_input("Ajouter mon actif (ex: USD/THB, SHIB/USD)", placeholder="Tape ton actif...")
     if st.button("➕ Ajouter cet actif"):
         nouvel = nouvel.strip().upper()
         if nouvel and nouvel not in st.session_state.mes_paires:
-            st.session_state.mes_paires.append(nouvel)
-            st.success(f"✅ {nouvel} ajouté !")
-            st.rerun()
+            st.session_state.mes_paires.append(nouvel); st.success(f"✅ {nouvel} ajouté !"); st.rerun()
 
 st.write("Temps (expiration)")
 expiration = st.slider("Temps (expiration)", min_value=1, max_value=19, value=5, step=1, label_visibility="collapsed")
-if expiration == 1:
-    st.caption("⚡ 1 mn = Très rapide, très risqué")
-elif expiration <= 3:
-    st.caption("⚡ 2-3 mn = Scalping rapide")
-elif expiration <= 6:
-    st.caption("✅ 4-6 mn = Idéal avec bougies 2 min")
-elif expiration <= 10:
-    st.caption("🕐 7-10 mn = Moyen terme")
-else:
-    st.caption("🕐 11-19 mn = Long, tendance forte")
+if expiration == 1: st.caption("⚡ 1 mn = Très rapide, très risqué")
+elif expiration <= 3: st.caption("⚡ 2-3 mn = Scalping rapide")
+elif expiration <= 6: st.caption("✅ 4-6 mn = Idéal avec bougies 2 min")
+elif expiration <= 10: st.caption("🕐 7-10 mn = Moyen terme")
+else: st.caption("🕐 11-19 mn = Long, tendance forte")
 st.write(f"Tu as choisi : **{actif} - {expiration} mn**")
 st.caption("Bougies : 2 MIN fixe sur IQ Option / Pocket Option.")
 
-# --- 🔑 CLÉ OPENAI SUR L'ACCUEIL - POUR NE PAS L'OUBLIER ---
-st.divider()
-st.subheader("🔑 Clé OpenAI - Pour analyser la capture")
-cle_existante = get_openai_key()
-if cle_existante:
-    st.success("✅ Clé OpenAI active. La capture va marcher.")
-    with st.expander("Changer la clé"):
-        nouvelle_cle = st.text_input("Nouvelle clé OpenAI (sk-...)", type="password", placeholder="sk-proj-...", key="changer_cle")
-        if st.button("💾 Enregistrer cette clé"):
-            if nouvelle_cle and nouvelle_cle.startswith("sk-"):
-                st.session_state.cle_openai_session = nouvelle_cle.strip()
-                st.success("✅ Nouvelle clé enregistrée !")
-                st.rerun()
-            else:
-                st.error("❌ La clé doit commencer par sk-")
-else:
-    st.warning("⚠️ Pas de clé. Colle ta clé pour débloquer l'analyse par capture.")
-    cle_tapee = st.text_input("Ta clé OpenAI (sk-...)", type="password", placeholder="sk-proj-... colle ta clé ici", key="cle_accueil")
-    if cle_tapee:
-        if cle_tapee.startswith("sk-"):
-            st.session_state.cle_openai_session = cle_tapee.strip()
-            st.success("✅ Clé enregistrée pour cette session !")
-            st.rerun()
-        else:
-            st.error("❌ La clé doit commencer par sk-")
-    st.caption("Où trouver ta clé ? → https://platform.openai.com/api-keys → Create new secret key → Copie-la ici.")
-
 if st.button("Vérifier MAINTENANT"):
     st.session_state.verifier_clique = True
-
 if not st.session_state.verifier_clique:
     st.stop()
 
@@ -197,33 +140,15 @@ st.divider()
 st.caption(f"✅ Analyse pour : {actif} | Bougies 2 MIN | Expiration {expiration} mn")
 
 def calcul_rsi_series(close, period=14):
-    delta = close.diff()
-    gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
-    loss = -delta.clip(upper=0).ewm(alpha=1/period, adjust=False).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    delta = close.diff(); gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean(); loss = -delta.clip(upper=0).ewm(alpha=1/period, adjust=False).mean(); rs = gain / loss.replace(0, np.nan); return 100 - (100 / (1 + rs))
 def calcul_adx_dxy(df, period=14):
-    high, low, close = df["High"], df["Low"], df["Close"]
-    plus_dm = high.diff(); minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0)
-    tr = pd.concat([high-low, (high-close.shift(1)).abs(), (low-close.shift(1)).abs()], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1/period, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan))
-    minus_di = 100 * (minus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan))
-    dx = 100 * (plus_di-minus_di).abs() / (plus_di+minus_di).replace(0, np.nan)
-    adx = dx.ewm(alpha=1/period, adjust=False).mean()
-    return float(adx.iloc[-1]), float(plus_di.iloc[-1]), float(minus_di.iloc[-1])
+    high, low, close = df["High"], df["Low"], df["Close"]; plus_dm = high.diff(); minus_dm = -low.diff(); plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0); minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0); tr = pd.concat([high-low, (high-close.shift(1)).abs(), (low-close.shift(1)).abs()], axis=1).max(axis=1); atr = tr.ewm(alpha=1/period, adjust=False).mean(); plus_di = 100 * (plus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan)); minus_di = 100 * (minus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan)); dx = 100 * (plus_di-minus_di).abs() / (plus_di+minus_di).replace(0, np.nan); adx = dx.ewm(alpha=1/period, adjust=False).mean(); return float(adx.iloc[-1]), float(plus_di.iloc[-1]), float(minus_di.iloc[-1])
 def obtenir_analyse_dxy():
     try:
         data = yf.download("DX-Y.NYB", period="5d", interval="2m", progress=False, auto_adjust=False)
         if data.empty: return None, None
         if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
-        close = data["Close"]
-        prix_dxy = float(close.iloc[-1])
-        ema9 = float(close.ewm(span=9).mean().iloc[-1]); ema21 = float(close.ewm(span=21).mean().iloc[-1])
-        rsi_dxy = float(calcul_rsi_series(close).iloc[-1])
-        adx_dxy, pdi, mdi = calcul_adx_dxy(data)
+        close = data["Close"]; prix_dxy = float(close.iloc[-1]); ema9 = float(close.ewm(span=9).mean().iloc[-1]); ema21 = float(close.ewm(span=21).mean().iloc[-1]); rsi_dxy = float(calcul_rsi_series(close).iloc[-1]); adx_dxy, pdi, mdi = calcul_adx_dxy(data)
         if ema9 > ema21 and rsi_dxy > 50: tendance = "DXY monte - Dollar FORT"
         elif ema9 < ema21 and rsi_dxy < 50: tendance = "DXY descend - Dollar FAIBLE"
         else: tendance = "DXY neutre / range"
@@ -231,29 +156,19 @@ def obtenir_analyse_dxy():
         elif adx_dxy >= 20: force = f"MODÉRÉE (ADX {adx_dxy:.1f})"
         else: force = f"FAIBLE (ADX {adx_dxy:.1f})"
         tendance_dxy = {"tendance": tendance, "rsi": round(rsi_dxy, 1), "force": force, "prix": round(prix_dxy, 2), "adx": round(adx_dxy, 1)}
-        if adx_dxy >= 25 and ((tendance == "DXY monte - Dollar FORT" and pdi > mdi) or (tendance == "DXY descend - Dollar FAIBLE" and mdi > pdi)):
-            confirmation = "CONFIRMÉ - Tendance DXY forte et validée"
-        elif adx_dxy >= 20 and tendance != "DXY neutre / range":
-            confirmation = "CONFIRMÉ FAIBLE - Tendance modérée, prudence"
-        elif tendance == "DXY neutre / range":
-            confirmation = "NON CONFIRMÉ - DXY en range"
-        else:
-            confirmation = "NON CONFIRMÉ - ADX faible, pas de tendance"
+        if adx_dxy >= 25 and ((tendance == "DXY monte - Dollar FORT" and pdi > mdi) or (tendance == "DXY descend - Dollar FAIBLE" and mdi > pdi)): confirmation = "CONFIRMÉ - Tendance DXY forte et validée"
+        elif adx_dxy >= 20 and tendance != "DXY neutre / range": confirmation = "CONFIRMÉ FAIBLE - Tendance modérée, prudence"
+        elif tendance == "DXY neutre / range": confirmation = "NON CONFIRMÉ - DXY en range"
+        else: confirmation = "NON CONFIRMÉ - ADX faible, pas de tendance"
         confirmation_dxy = {"confirmation": confirmation, "adx": round(adx_dxy, 1), "plus_di": round(pdi, 1), "moins_di": round(mdi, 1)}
         return tendance_dxy, confirmation_dxy
-    except Exception:
-        return None, None
+    except Exception: return None, None
 def evaluer_double_filtre_dxy(actif_choisi, tendance_txt, confirmation_txt):
-    a = actif_choisi.upper()
-    est_forex_usd = "USD" in a and ("EUR" in a or "GBP" in a or "AUD" in a or "NZD" in a or "JPY" in a or "CHF" in a or "CAD" in a or "MXN" in a or "BRL" in a or "ZAR" in a or a.startswith("USD"))
-    if actif_choisi == "Dollar Index (DXY)":
-        return {"autorisation": True, "message": "✅ Tu trades le DXY lui-même.", "sens": "NEUTRE"}
-    if not est_forex_usd:
-        return {"autorisation": True, "message": f"ℹ️ Actif non-USD ({actif_choisi}) : DXY = {tendance_txt} / {confirmation_txt}. Filtre informatif.", "sens": "NEUTRE"}
-    usd_en_deuxieme = "USD" in a and a.endswith("USD")
-    usd_en_premier = a.startswith("USD")
-    if "NON CONFIRMÉ" in confirmation_txt:
-        return {"autorisation": False, "message": "🚫 DOUBLE FILTRE DXY : NON CONFIRMÉ. DXY en range ou ADX faible. ATTENDS.", "sens": "ATTENDRE"}
+    a = actif_choisi.upper(); est_forex_usd = "USD" in a and ("EUR" in a or "GBP" in a or "AUD" in a or "NZD" in a or "JPY" in a or "CHF" in a or "CAD" in a or "MXN" in a or "BRL" in a or "ZAR" in a or a.startswith("USD"))
+    if actif_choisi == "Dollar Index (DXY)": return {"autorisation": True, "message": "✅ Tu trades le DXY lui-même.", "sens": "NEUTRE"}
+    if not est_forex_usd: return {"autorisation": True, "message": f"ℹ️ Actif non-USD ({actif_choisi}) : DXY = {tendance_txt} / {confirmation_txt}. Filtre informatif.", "sens": "NEUTRE"}
+    usd_en_deuxieme = "USD" in a and a.endswith("USD"); usd_en_premier = a.startswith("USD")
+    if "NON CONFIRMÉ" in confirmation_txt: return {"autorisation": False, "message": "🚫 DOUBLE FILTRE DXY : NON CONFIRMÉ. DXY en range ou ADX faible. ATTENDS.", "sens": "ATTENDRE"}
     if tendance_txt == "DXY monte - Dollar FORT":
         if usd_en_deuxieme: return {"autorisation": True, "message": "✅ DOUBLE FILTRE VALIDÉ : DXY FORT confirmé → Paire risque de BAISSER. Privilégie PUT.", "sens": "PUT"}
         if usd_en_premier: return {"autorisation": True, "message": "✅ DOUBLE FILTRE VALIDÉ : DXY FORT confirmé → Paire risque de MONTER. Privilégie CALL.", "sens": "CALL"}
@@ -270,23 +185,16 @@ filtre_dxy_resultat = None; alerte_dxy = None; sens_dxy = None
 if choix_dxy.startswith("AUTO"):
     if st.session_state.dxy_cache is None:
         with st.spinner("Récupération DXY..."):
-            tendance_dxy, confirmation_dxy = obtenir_analyse_dxy()
-            st.session_state.dxy_cache = (tendance_dxy, confirmation_dxy)
-    else:
-        tendance_dxy, confirmation_dxy = st.session_state.dxy_cache
-    if st.button("🔄 Actualiser DXY AUTO"):
-        st.session_state.dxy_cache = None; st.rerun()
+            tendance_dxy, confirmation_dxy = obtenir_analyse_dxy(); st.session_state.dxy_cache = (tendance_dxy, confirmation_dxy)
+    else: tendance_dxy, confirmation_dxy = st.session_state.dxy_cache
+    if st.button("🔄 Actualiser DXY AUTO"): st.session_state.dxy_cache = None; st.rerun()
     if tendance_dxy and confirmation_dxy:
         filtre_dxy_resultat = evaluer_double_filtre_dxy(actif, tendance_dxy["tendance"], confirmation_dxy["confirmation"])
-        st.write("Filtre 1 :", tendance_dxy["tendance"])
-        st.write("Filtre 2 :", confirmation_dxy["confirmation"])
-        st.write("RSI DXY :", tendance_dxy["rsi"])
-        st.write("ADX DXY :", tendance_dxy["force"])
+        st.write("Filtre 1 :", tendance_dxy["tendance"]); st.write("Filtre 2 :", confirmation_dxy["confirmation"]); st.write("RSI DXY :", tendance_dxy["rsi"]); st.write("ADX DXY :", tendance_dxy["force"])
         if filtre_dxy_resultat["autorisation"]: st.success(filtre_dxy_resultat["message"])
         else: st.warning(filtre_dxy_resultat["message"])
         alerte_dxy = filtre_dxy_resultat["message"]; sens_dxy = filtre_dxy_resultat["sens"]
-    else:
-        filtre_dxy_resultat = None; st.warning("Données DXY indisponibles : aucune confirmation. Passe en MANUEL."); alerte_dxy = "DXY indisponible"
+    else: filtre_dxy_resultat = None; st.warning("Données DXY indisponibles : aucune confirmation. Passe en MANUEL."); alerte_dxy = "DXY indisponible"
 else:
     dxy_manuel = st.selectbox("Tendance DXY sur IQ Option :", ["Je ne sais pas", "DXY monte - Dollar FORT", "DXY descend - Dollar FAIBLE", "DXY neutre / range"])
     adx_manuel = st.number_input("ADX DXY", value=22.0)
@@ -294,8 +202,7 @@ else:
     elif adx_manuel < 20: confirmation_manuel = "NON CONFIRMÉ - ADX faible"
     elif adx_manuel >= 25: confirmation_manuel = "CONFIRMÉ - Tendance DXY forte"
     else: confirmation_manuel = "CONFIRMÉ FAIBLE - Tendance modérée"
-    st.write("Filtre 1 :", dxy_manuel); st.write("Filtre 2 :", confirmation_manuel)
-    st.write("RSI DXY : Non renseigné en manuel"); st.write(f"ADX DXY : {adx_manuel}")
+    st.write("Filtre 1 :", dxy_manuel); st.write("Filtre 2 :", confirmation_manuel); st.write("RSI DXY : Non renseigné en manuel"); st.write(f"ADX DXY : {adx_manuel}")
     filtre_dxy_resultat = evaluer_double_filtre_dxy(actif, dxy_manuel, confirmation_manuel)
     if filtre_dxy_resultat["autorisation"]: st.success(filtre_dxy_resultat["message"])
     else: st.warning(filtre_dxy_resultat["message"])
@@ -309,8 +216,7 @@ mise_conseillee = capital * risque_pct / 100
 st.write(f"💰 Mise conseillée : **${mise_conseillee:.2f}** | Bougies **2 MIN** | Expiration **{expiration} mn**")
 today = str(date.today())
 journal_today = [x for x in st.session_state.risk_journal if x.get("date") == today]
-pertes_today = sum(1 for x in journal_today if x.get("resultat") == "PERTE")
-gains_today = sum(1 for x in journal_today if x.get("resultat") == "GAIN")
+pertes_today = sum(1 for x in journal_today if x.get("resultat") == "PERTE"); gains_today = sum(1 for x in journal_today if x.get("resultat") == "GAIN")
 pertes_consecutives = 0
 for x in reversed(st.session_state.risk_journal):
     if x.get("resultat") == "PERTE": pertes_consecutives += 1
@@ -321,19 +227,14 @@ if pertes_consecutives >= 3: blocage_raison = f"🚫 BLOCAGE : 3 pertes d'affil�
 elif pertes_today >= 5: blocage_raison = f"🚫 BLOCAGE JOURNALIER : {pertes_today} pertes. ARRÊTE."
 if blocage_raison:
     st.error(blocage_raison)
-    if st.button("🔓 Débloquer pour démo"):
-        st.session_state.risk_journal = st.session_state.risk_journal[:-3] if len(st.session_state.risk_journal) >= 3 else []; st.rerun()
+    if st.button("🔓 Débloquer pour démo"): st.session_state.risk_journal = st.session_state.risk_journal[:-3] if len(st.session_state.risk_journal) >= 3 else []; st.rerun()
     st.stop()
-else:
-    st.success(f"Aujourd'hui : ✅ {gains_today} | ❌ {pertes_today} | Série : {pertes_consecutives}/3")
+else: st.success(f"Aujourd'hui : ✅ {gains_today} | ❌ {pertes_today} | Série : {pertes_consecutives}/3")
 
 mode = st.radio("Mode :", ["SANS capture - Je tape les chiffres", "AVEC capture - Photo graphique", "ENTRAÎNEMENT - Yahoo Finance"], index=0)
 
 def calcul_wcci_woodie(df, period=14):
-    tp = (df["High"] + df["Low"] + df["Close"]) / 3
-    sma = tp.rolling(period).mean()
-    md = tp.rolling(period).apply(lambda x: np.mean(np.abs(x - np.mean(x))), raw=True)
-    return (tp - sma) / (0.015 * md.replace(0, np.nan))
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3; sma = tp.rolling(period).mean(); md = tp.rolling(period).apply(lambda x: np.mean(np.abs(x - np.mean(x))), raw=True); return (tp - sma) / (0.015 * md.replace(0, np.nan))
 def interprete_wcci(v):
     if v > 200: return "🔴 WCCI > 200 SURACHAT EXTRÊME"
     if v > 100: return "🟠 WCCI > 100 Surachat"
@@ -341,39 +242,18 @@ def interprete_wcci(v):
     if v < -100: return "🟡 WCCI < -100 Survente"
     return "WCCI > 0 haussier" if v > 0 else "WCCI < 0 baissier"
 def calcul_macd(close):
-    ema12 = close.ewm(span=12, adjust=False).mean(); ema26 = close.ewm(span=26, adjust=False).mean()
-    macd = ema12 - ema26; signal = macd.ewm(span=9, adjust=False).mean()
-    return float(macd.iloc[-1]), float(signal.iloc[-1]), float((macd-signal).iloc[-1])
+    ema12 = close.ewm(span=12, adjust=False).mean(); ema26 = close.ewm(span=26, adjust=False).mean(); macd = ema12 - ema26; signal = macd.ewm(span=9, adjust=False).mean(); return float(macd.iloc[-1]), float(signal.iloc[-1]), float((macd-signal).iloc[-1])
 def calcul_adx(df, period=14):
-    high, low, close = df["High"], df["Low"], df["Close"]
-    plus_dm = high.diff(); minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0)
-    tr = pd.concat([high-low, (high-close.shift(1)).abs(), (low-close.shift(1)).abs()], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1/period, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan))
-    minus_di = 100 * (minus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan))
-    dx = 100 * (plus_di-minus_di).abs() / (plus_di+minus_di).replace(0, np.nan)
-    adx = dx.ewm(alpha=1/period, adjust=False).mean()
-    return float(adx.iloc[-1]), float(plus_di.iloc[-1]), float(minus_di.iloc[-1])
+    high, low, close = df["High"], df["Low"], df["Close"]; plus_dm = high.diff(); minus_dm = -low.diff(); plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0); minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0); tr = pd.concat([high-low, (high-close.shift(1)).abs(), (low-close.shift(1)).abs()], axis=1).max(axis=1); atr = tr.ewm(alpha=1/period, adjust=False).mean(); plus_di = 100 * (plus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan)); minus_di = 100 * (minus_dm.ewm(alpha=1/period, adjust=False).mean() / atr.replace(0, np.nan)); dx = 100 * (plus_di-minus_di).abs() / (plus_di+minus_di).replace(0, np.nan); adx = dx.ewm(alpha=1/period, adjust=False).mean(); return float(adx.iloc[-1]), float(plus_di.iloc[-1]), float(minus_di.iloc[-1])
 def analyse_chandelier_corrige(o, h, l, c, o_prev, h_prev, l_prev, c_prev, o_prev2=None, c_prev2=None):
-    patterns=[]; sh=0; sb=0
-    corps=abs(c-o); rng=h-l if h!=l else 0.00001; mh=h-max(o,c); mb=min(o,c)-l
-    corps_prev=abs(c_prev-o_prev)
-    est_verte=c>o; est_rouge=c<o; est_verte_prev=c_prev>o_prev; est_rouge_prev=c_prev<o_prev
+    patterns=[]; sh=0; sb=0; corps=abs(c-o); rng=h-l if h!=l else 0.00001; mh=h-max(o,c); mb=min(o,c)-l; corps_prev=abs(c_prev-o_prev); est_verte=c>o; est_rouge=c<o; est_verte_prev=c_prev>o_prev; est_rouge_prev=c_prev<o_prev
     if corps < rng*0.10: patterns.append("➖ Doji")
-    if mb > corps*2 and mh < corps*0.5 and min(o,c) > l+rng*0.6:
-        patterns.append("🔨 Marteau Haussier"); sh+=2
-    if mh > corps*2 and mb < corps*0.5 and max(o,c) < h-rng*0.6:
-        patterns.append("⭐ Étoile Filante"); sb+=2
-    if est_rouge_prev and est_verte and o < c_prev and c > o_prev and corps > corps_prev*1.1:
-        patterns.append("🟢 Englobante Haussière FORTE"); sh+=2
-    if est_verte_prev and est_rouge and o > c_prev and c < o_prev and corps > corps_prev*1.1:
-        patterns.append("🔴 Englobante Baissière FORTE"); sb+=2
-    if est_rouge_prev and est_verte and o > c_prev and c < o_prev:
-        patterns.append("🟡 Harami Haussier"); sh+=1
-    if est_verte_prev and est_rouge and o < c_prev and c > o_prev:
-        patterns.append("🟡 Harami Baissier"); sb+=1
+    if mb > corps*2 and mh < corps*0.5 and min(o,c) > l+rng*0.6: patterns.append("🔨 Marteau Haussier"); sh+=2
+    if mh > corps*2 and mb < corps*0.5 and max(o,c) < h-rng*0.6: patterns.append("⭐ Étoile Filante"); sb+=2
+    if est_rouge_prev and est_verte and o < c_prev and c > o_prev and corps > corps_prev*1.1: patterns.append("🟢 Englobante Haussière FORTE"); sh+=2
+    if est_verte_prev and est_rouge and o > c_prev and c < o_prev and corps > corps_prev*1.1: patterns.append("🔴 Englobante Baissière FORTE"); sb+=2
+    if est_rouge_prev and est_verte and o > c_prev and c < o_prev: patterns.append("🟡 Harami Haussier"); sh+=1
+    if est_verte_prev and est_rouge and o < c_prev and c > o_prev: patterns.append("🟡 Harami Baissier"); sb+=1
     if o_prev2 is not None and c_prev2 is not None:
         if c_prev2>o_prev2 and c_prev>o_prev and est_verte: patterns.append("🟢 3 Soldats Blancs"); sh+=2
         if c_prev2<o_prev2 and c_prev<o_prev and est_rouge: patterns.append("🔴 3 Corbeaux Noirs"); sb+=2
@@ -395,8 +275,7 @@ def decision_pro(bull, bear, macd_hist, adx, plus_di, minus_di, rsi, wcci):
     if sens_dxy == "ATTENDRE": contradictions.append("DOUBLE FILTRE DXY dit ATTENDRE")
     return contradictions
 def donner_position(bull, bear, prix, support, resistance, bb_up, bb_low, bougie, macd_hist, adx, plus_di, minus_di, rsi, wcci, ch_h, ch_b):
-    contradictions = decision_pro(bull, bear, macd_hist, adx, plus_di, minus_di, rsi, wcci)
-    bull_total = bull + ch_h; bear_total = bear + ch_b
+    contradictions = decision_pro(bull, bear, macd_hist, adx, plus_di, minus_di, rsi, wcci); bull_total = bull + ch_h; bear_total = bear + ch_b
     if len(contradictions) >= 2 or adx < 18 or (filtre_dxy_resultat and not filtre_dxy_resultat["autorisation"]):
         return {"signal": f"🟡 ATTENDRE FORCÉ sur {actif} - DOUBLE FILTRE DXY / Contradictions", "type": "warning", "entree": "NE PAS ENTRER", "condition": f"Attendre que DXY + indicateurs s'alignent. Support {support:.5f} / Résistance {resistance:.5f}", "objectif": "Pas d'objectif", "invalidation": "Pas de signal", "conseil": f"Contradictions : {'; '.join(contradictions)} | DXY : {alerte_dxy}", "contradictions": contradictions}
     if bull_total >= 7 and bougie == "Verte" and not contradictions:
@@ -408,115 +287,95 @@ def afficher_position(pos, actif_nom):
     if pos["type"] == "success": st.success(pos["signal"])
     elif pos["type"] == "error": st.error(pos["signal"])
     else: st.warning(pos["signal"])
-    st.write(f"**📍 ENTRÉE :** {pos['entree']}")
-    st.write(f"**🎯 CONDITION :** {pos['condition']}")
-    st.write(f"**🏁 OBJECTIF :** {pos['objectif']}")
-    st.write(f"**❌ INVALIDATION :** {pos['invalidation']}")
-    st.write(f"**💡 CONSEIL :** {pos['conseil']}")
+    st.write(f"**📍 ENTRÉE :** {pos['entree']}"); st.write(f"**🎯 CONDITION :** {pos['condition']}"); st.write(f"**🏁 OBJECTIF :** {pos['objectif']}"); st.write(f"**❌ INVALIDATION :** {pos['invalidation']}"); st.write(f"**💡 CONSEIL :** {pos['conseil']}")
     if pos.get("contradictions"): st.error(f"⚠️ CONTRADICTIONS : {'; '.join(pos['contradictions'])}")
     if alerte_dxy: st.write(f"**💵 DOUBLE FILTRE DXY :** {alerte_dxy}")
     c1, c2, c3 = st.columns(3)
-    if c1.button("✅ J'ai GAGNÉ", key=f"win_{actif_nom}_{datetime.now().timestamp()}"):
-        st.session_state.risk_journal.append({"date": today, "heure": datetime.now().strftime("%H:%M"), "actif": actif_nom, "signal": pos["signal"], "resultat": "GAIN"}); st.rerun()
-    if c2.button("❌ J'ai PERDU", key=f"lose_{actif_nom}_{datetime.now().timestamp()}"):
-        st.session_state.risk_journal.append({"date": today, "heure": datetime.now().strftime("%H:%M"), "actif": actif_nom, "signal": pos["signal"], "resultat": "PERTE"}); st.rerun()
+    if c1.button("✅ J'ai GAGNÉ", key=f"win_{actif_nom}_{datetime.now().timestamp()}"): st.session_state.risk_journal.append({"date": today, "heure": datetime.now().strftime("%H:%M"), "actif": actif_nom, "signal": pos["signal"], "resultat": "GAIN"}); st.rerun()
+    if c2.button("❌ J'ai PERDU", key=f"lose_{actif_nom}_{datetime.now().timestamp()}"): st.session_state.risk_journal.append({"date": today, "heure": datetime.now().strftime("%H:%M"), "actif": actif_nom, "signal": pos["signal"], "resultat": "PERTE"}); st.rerun()
     if c3.button("⏭️ PAS pris"): st.info("Bien joué, ne pas trader c'est aussi trader.")
 
 if mode.startswith("SANS"):
     st.header(f"Analyse - {actif} - 2 MIN - Exp {expiration} mn")
     st.write("Sur IQ Option / Pocket Option, mets ton graphique en **2 MIN** : RSI 14, WCCI 14, CFO 14, Bollinger 20,2, EMA 9/21, MACD 12,26,9, ADX 14")
-    c1, c2 = st.columns(2)
-    rsi = c1.number_input("RSI 14", value=50.0, min_value=0.0, max_value=100.0)
-    cfo_val = c2.number_input("CFO 14", value=0.0, format="%.3f")
-    c3, c4 = st.columns(2)
-    wcci_val = c3.number_input("WCCI Woodie 14", value=0.0, format="%.1f")
-    adx_val = c4.number_input("ADX 14", value=20.0, min_value=0.0, max_value=100.0)
-    c5, c6 = st.columns(2)
-    macd_val = c5.number_input("MACD Hist", value=0.0, format="%.5f")
-    prix = c6.number_input("Prix actuel", value=1.10950, format="%.5f")
-    c7, c8 = st.columns(2)
-    di_plus = c7.number_input("+DI", value=20.0); di_minus = c8.number_input("-DI", value=20.0)
-    c9, c10 = st.columns(2)
-    ema9 = c9.number_input("EMA 9", value=1.10950, format="%.5f")
-    ema21 = c10.number_input("EMA 21", value=1.10940, format="%.5f")
+    c1, c2 = st.columns(2); rsi = c1.number_input("RSI 14", value=50.0, min_value=0.0, max_value=100.0); cfo_val = c2.number_input("CFO 14", value=0.0, format="%.3f")
+    c3, c4 = st.columns(2); wcci_val = c3.number_input("WCCI Woodie 14", value=0.0, format="%.1f"); adx_val = c4.number_input("ADX 14", value=20.0, min_value=0.0, max_value=100.0)
+    c5, c6 = st.columns(2); macd_val = c5.number_input("MACD Hist", value=0.0, format="%.5f"); prix = c6.number_input("Prix actuel", value=1.10950, format="%.5f")
+    c7, c8 = st.columns(2); di_plus = c7.number_input("+DI", value=20.0); di_minus = c8.number_input("-DI", value=20.0)
+    c9, c10 = st.columns(2); ema9 = c9.number_input("EMA 9", value=1.10950, format="%.5f"); ema21 = c10.number_input("EMA 21", value=1.10940, format="%.5f")
     bougie = st.selectbox("Dernière bougie 2 MIN", ["Verte", "Rouge"])
-    bb_up = st.number_input("Bollinger Haute", value=1.11000, format="%.5f")
-    bb_mid = st.number_input("Bollinger Moyenne", value=1.10950, format="%.5f")
-    bb_low = st.number_input("Bollinger Basse", value=1.10900, format="%.5f")
-    support = st.number_input("Support", value=1.10880, format="%.5f")
-    resistance = st.number_input("Résistance", value=1.11020, format="%.5f")
+    bb_up = st.number_input("Bollinger Haute", value=1.11000, format="%.5f"); bb_mid = st.number_input("Bollinger Moyenne", value=1.10950, format="%.5f"); bb_low = st.number_input("Bollinger Basse", value=1.10900, format="%.5f"); support = st.number_input("Support", value=1.10880, format="%.5f"); resistance = st.number_input("Résistance", value=1.11020, format="%.5f")
     st.subheader("🕯️ Chandeliers - 3 dernières bougies 2 MIN")
-    o_prev2 = st.number_input("Ouv. Bougie -2", value=1.10930, format="%.5f")
-    c_prev2 = st.number_input("Clôt. Bougie -2", value=1.10940, format="%.5f")
-    o_prev = st.number_input("Ouv. Bougie -1", value=1.10940, format="%.5f")
-    c_prev = st.number_input("Clôt. Bougie -1", value=1.10930, format="%.5f")
-    o_curr = st.number_input("Ouv. Bougie actuelle", value=1.10940, format="%.5f")
-    h_curr = st.number_input("Plus haut actuelle", value=1.10980, format="%.5f")
-    l_curr = st.number_input("Plus bas actuelle", value=1.10920, format="%.5f")
-    h_prev = st.number_input("Plus haut bougie -1", value=1.10970, format="%.5f")
-    l_prev = st.number_input("Plus bas bougie -1", value=1.10910, format="%.5f")
+    o_prev2 = st.number_input("Ouv. Bougie -2", value=1.10930, format="%.5f"); c_prev2 = st.number_input("Clôt. Bougie -2", value=1.10940, format="%.5f"); o_prev = st.number_input("Ouv. Bougie -1", value=1.10940, format="%.5f"); c_prev = st.number_input("Clôt. Bougie -1", value=1.10930, format="%.5f"); o_curr = st.number_input("Ouv. Bougie actuelle", value=1.10940, format="%.5f"); h_curr = st.number_input("Plus haut actuelle", value=1.10980, format="%.5f"); l_curr = st.number_input("Plus bas actuelle", value=1.10920, format="%.5f"); h_prev = st.number_input("Plus haut bougie -1", value=1.10970, format="%.5f"); l_prev = st.number_input("Plus bas bougie -1", value=1.10910, format="%.5f")
     if st.button("🔎 OÙ JE PRENDS POSITION ?", type="primary", use_container_width=True):
         patterns, ch_h, ch_b = analyse_chandelier_corrige(o_curr, h_curr, l_curr, prix, o_prev, h_prev, l_prev, c_prev, o_prev2, c_prev2)
         st.write(f"**🕯️ :** {', '.join(patterns)} | **WCCI :** {interprete_wcci(wcci_val)}")
         bullish = {"EMA 9 > EMA 21": ema9 > ema21, "RSI > 50": rsi > 50, "CFO > 0": cfo_val > 0, "WCCI > 0": wcci_val > 0, "Prix > BB Moyenne": prix > bb_mid, "Bougie Verte": bougie=="Verte", "MACD Hist > 0": macd_val > 0, "ADX > 20 + +DI > -DI": adx_val > 20 and di_plus > di_minus, "Prix > BB Basse": prix > bb_low, "WCCI < 200": wcci_val < 200}
         bearish = {"EMA 9 < EMA 21": ema9 < ema21, "RSI < 50": rsi < 50, "CFO < 0": cfo_val < 0, "WCCI < 0": wcci_val < 0, "Prix < BB Moyenne": prix < bb_mid, "Bougie Rouge": bougie=="Rouge", "MACD Hist < 0": macd_val < 0, "ADX > 20 + -DI > +DI": adx_val > 20 and di_minus > di_plus, "Prix < BB Haute": prix < bb_up, "WCCI > -200": wcci_val > -200}
-        pos = donner_position(sum(bullish.values()), sum(bearish.values()), prix, support, resistance, bb_up, bb_low, bougie, macd_val, adx_val, di_plus, di_minus, rsi, wcci_val, ch_h, ch_b)
-        afficher_position(pos, actif)
+        pos = donner_position(sum(bullish.values()), sum(bearish.values()), prix, support, resistance, bb_up, bb_low, bougie, macd_val, adx_val, di_plus, di_minus, rsi, wcci_val, ch_h, ch_b); afficher_position(pos, actif)
 
+# ================= ===== CAPTURE - CLÉ AUTOMATIQUE ===== =================
 elif mode.startswith("AVEC"):
     st.header(f"Capture - {actif} - 2 MIN - Exp {expiration} mn")
     st.warning("📸 Avant ta capture, vérifie : IQ Option / Pocket Option est bien en 2 MIN.")
-
-    # --- 🔑 VÉRIFICATION CLÉ DANS LE MODE CAPTURE AUSSI ---
-    cle_capture = get_openai_key()
-    if cle_capture:
-        st.success("✅ Clé OpenAI active - La capture va être analysée.")
+    # La clé est AUTOMATIQUE, pas besoin de la taper
+    if CLE_ACTIVE:
+        st.success("✅ Clé OpenAI AUTOMATIQUE détectée - Envoie ta capture, l'IA va la lire toute seule.")
+        choix_capture = st.radio("Comment analyser ?", ["🤖 AUTO IA - Automatique (recommandé)", "✍️ MANUEL - Je tape les chiffres (si l'IA ne marche pas)"], index=0)
     else:
-        st.error("❌ Pas de clé OpenAI. Retourne à l'accueil et colle ta clé dans '🔑 Clé OpenAI' ou mets-la en haut du code.")
-        cle_manuelle_capture = st.text_input("Colle ta clé ici pour débloquer (sk-...)", type="password", placeholder="sk-proj-...", key="cle_capture_direct")
-        if cle_manuelle_capture and cle_manuelle_capture.startswith("sk-"):
-            st.session_state.cle_openai_session = cle_manuelle_capture.strip()
-            st.success("✅ Clé enregistrée ! Clique à nouveau sur ANALYSER.")
-            st.rerun()
-        st.stop()
+        st.error("❌ Clé AUTOMATIQUE non trouvée. Mets-la dans Secrets 1 fois pour débloquer l'AUTO IA. En attendant, utilise MANUEL.")
+        choix_capture = st.radio("Comment analyser ?", ["✍️ MANUEL - Je tape les chiffres (marche sans clé)", "🤖 AUTO IA - Il faut la clé"], index=0)
 
-    uploaded = st.file_uploader("Ta capture en 2 MIN", type=["png","jpg","jpeg","webp"])
+    uploaded = st.file_uploader("📸 Envoie ta capture en 2 MIN", type=["png","jpg","jpeg","webp"])
     if uploaded:
         st.image(uploaded, caption="Ta capture 2 MIN", use_container_width=True)
-        voir_rsi = st.checkbox("Je vois RSI", value=True); voir_wcci = st.checkbox("Je vois WCCI", value=True)
-        voir_macd = st.checkbox("Je vois MACD", value=False); voir_adx = st.checkbox("Je vois ADX", value=False)
-        voir_boll = st.checkbox("Je vois Bollinger", value=True); voir_ema = st.checkbox("Je vois EMA 9/21", value=True)
-        support2 = st.number_input("Support visible", value=1.10880, format="%.5f", key="s2")
-        resistance2 = st.number_input("Résistance visible", value=1.11020, format="%.5f", key="r2")
-        qualite = st.selectbox("Qualité capture", ["Bonne - tout est lisible", "Moyenne - un peu flou", "Mauvaise - flou / petit"])
-        if st.button("🧠 ANALYSER LA CAPTURE - 2 MIN + DOUBLE DXY", type="primary", use_container_width=True):
-            cle_finale = get_openai_key()
-            if not cle_finale or OpenAI is None:
-                st.error("❌ Pas de clé OpenAI. Colle ta clé en haut.")
+        st.write("---")
+        if choix_capture.startswith("🤖"):
+            if not CLE_ACTIVE:
+                st.error("❌ Pas de clé automatique. Mets ta clé dans Secrets puis Reboot, ou utilise MANUEL.")
                 st.stop()
-            try:
-                mime = uploaded.type or "image/png"
-                encoded = base64.b64encode(uploaded.getvalue()).decode("utf-8")
-                data_url = f"data:{mime};base64,{encoded}"
-                client = OpenAI(api_key=cle_finale)
-                prompt = f"""
-Tu es un analyste PRO IQ Option / Pocket Option. Actif : {actif}. BOUGIES 2 MIN. Expiration : {expiration} mn. Support : {support2}. Résistance : {resistance2}.
-DOUBLE FILTRE DXY : {alerte_dxy}
-Qualité : {qualite}. Vu : RSI={voir_rsi}, WCCI={voir_wcci}, MACD={voir_macd}, ADX={voir_adx}, Bollinger={voir_boll}, EMA={voir_ema}.
-Lis zone par zone : PRIX, BOUGIES 2 MIN, BOLLINGER, RSI, WCCI WOODIE (ne jamais inventer), MACD, ADX, EMA.
-Si contradiction avec DXY -> ATTENDRE FORCÉ. Si ADX<20 -> ATTENDRE.
-Donne : tableau lecture, contradictions, OÙ ENTRER, CONDITION, OBJECTIF, INVALIDATION, RISQUE, CONCLUSION CALL/PUT/ATTENDRE + score /12.
-Ne garantis jamais un gain. Si illisible, dis ILLISIBLE.
-"""
-                with st.spinner("🧠 L'IA lit ta capture en 2 MIN..."):
-                    resp = client.responses.create(model=get_openai_model(), input=[{"role":"user","content":[{"type":"input_text","text":prompt},{"type":"input_image","image_url":data_url,"detail":"high"}]}])
-                    st.markdown(resp.output_text)
-            except Exception as e:
-                st.error(f"Erreur IA : {e}")
-                if "invalid_api_key" in str(e).lower() or "401" in str(e):
-                    st.error("❌ Clé fausse ou expirée. Crée une nouvelle clé sur platform.openai.com/api-keys")
-                elif "quota" in str(e).lower() or "insufficient" in str(e).lower():
-                    st.error("❌ Plus de crédit OpenAI. Ajoute 5$ sur platform.openai.com → Billing.")
+            voir_rsi = st.checkbox("Je vois RSI", value=True); voir_wcci = st.checkbox("Je vois WCCI", value=True)
+            voir_macd = st.checkbox("Je vois MACD", value=False); voir_adx = st.checkbox("Je vois ADX", value=False)
+            voir_boll = st.checkbox("Je vois Bollinger", value=True); voir_ema = st.checkbox("Je vois EMA 9/21", value=True)
+            support2 = st.number_input("Support visible", value=1.10880, format="%.5f", key="s2")
+            resistance2 = st.number_input("Résistance visible", value=1.11020, format="%.5f", key="r2")
+            qualite = st.selectbox("Qualité capture", ["Bonne - tout est lisible", "Moyenne - un peu flou", "Mauvaise - flou / petit"])
+            if st.button("🧠 ANALYSER AVEC L'IA AUTOMATIQUE - 2 MIN + DOUBLE DXY", type="primary", use_container_width=True):
+                try:
+                    mime = uploaded.type or "image/png"; encoded = base64.b64encode(uploaded.getvalue()).decode("utf-8"); data_url = f"data:{mime};base64,{encoded}"
+                    prompt = f"Tu es un analyste PRO IQ Option / Pocket Option. Actif : {actif}. BOUGIES 2 MIN. Expiration : {expiration} mn. Support : {support2}. Résistance : {resistance2}. DOUBLE FILTRE DXY : {alerte_dxy} Qualité : {qualite}. Vu : RSI={voir_rsi}, WCCI={voir_wcci}, MACD={voir_macd}, ADX={voir_adx}, Bollinger={voir_boll}, EMA={voir_ema}. Lis zone par zone : PRIX, BOUGIES 2 MIN, BOLLINGER, RSI, WCCI WOODIE (ne jamais inventer), MACD, ADX, EMA. Si contradiction avec DXY -> ATTENDRE FORCÉ. Si ADX<20 -> ATTENDRE. Donne : tableau lecture, contradictions, OÙ ENTRER, CONDITION, OBJECTIF, INVALIDATION, RISQUE, CONCLUSION CALL/PUT/ATTENDRE + score /12. Ne garantis jamais un gain. Si illisible, dis ILLISIBLE."
+                    with st.spinner("🧠 L'IA lit ta capture automatiquement..."):
+                        resp = client_auto.responses.create(model=model_auto, input=[{"role":"user","content":[{"type":"input_text","text":prompt},{"type":"input_image","image_url":data_url,"detail":"high"}]}])
+                        st.markdown(resp.output_text)
+                except Exception as e:
+                    st.error(f"Erreur IA : {e}")
+                    if "invalid_api_key" in str(e).lower() or "401" in str(e): st.error("❌ Clé fausse. Vérifie Secrets → OPENAI_API_KEY, puis Reboot.")
+                    elif "quota" in str(e).lower() or "insufficient" in str(e).lower(): st.error("❌ Plus de crédit OpenAI. Ajoute 5$ sur platform.openai.com → Billing.")
+                    st.info("💡 En attendant, utilise MANUEL ci-dessous, ça marche sans clé.")
+        else:
+            st.success("✅ MODE MANUEL - Regarde ta capture en haut et tape ce que tu vois.")
+            c1, c2 = st.columns(2); rsi_c = c1.number_input("RSI 14 sur ma capture", value=50.0, min_value=0.0, max_value=100.0, key="rsi_c"); cfo_c = c2.number_input("CFO 14 sur ma capture", value=0.0, format="%.3f", key="cfo_c")
+            c3, c4 = st.columns(2); wcci_c = c3.number_input("WCCI sur ma capture", value=0.0, format="%.1f", key="wcci_c"); adx_c = c4.number_input("ADX 14 sur ma capture", value=20.0, min_value=0.0, max_value=100.0, key="adx_c")
+            c5, c6 = st.columns(2); macd_c = c5.number_input("MACD Hist sur ma capture", value=0.0, format="%.5f", key="macd_c"); prix_c = c6.number_input("Prix actuel sur ma capture", value=1.10950, format="%.5f", key="prix_c")
+            c7, c8 = st.columns(2); di_plus_c = c7.number_input("+DI sur ma capture", value=20.0, key="dip_c"); di_minus_c = c8.number_input("-DI sur ma capture", value=20.0, key="dim_c")
+            c9, c10 = st.columns(2); ema9_c = c9.number_input("EMA 9 sur ma capture", value=1.10950, format="%.5f", key="ema9_c"); ema21_c = c10.number_input("EMA 21 sur ma capture", value=1.10940, format="%.5f", key="ema21_c")
+            bougie_c = st.selectbox("Dernière bougie 2 MIN sur ma capture", ["Verte", "Rouge"], key="bougie_c")
+            bb_up_c = st.number_input("Bollinger Haute sur ma capture", value=1.11000, format="%.5f", key="bbu_c"); bb_mid_c = st.number_input("Bollinger Moyenne sur ma capture", value=1.10950, format="%.5f", key="bbm_c"); bb_low_c = st.number_input("Bollinger Basse sur ma capture", value=1.10900, format="%.5f", key="bbl_c"); support_c = st.number_input("Support sur ma capture", value=1.10880, format="%.5f", key="sup_c"); resistance_c = st.number_input("Résistance sur ma capture", value=1.11020, format="%.5f", key="res_c")
+            o_prev2_c = st.number_input("Ouv. Bougie -2", value=1.10930, format="%.5f", key="op2_c"); c_prev2_c = st.number_input("Clôt. Bougie -2", value=1.10940, format="%.5f", key="cp2_c"); o_prev_c = st.number_input("Ouv. Bougie -1", value=1.10940, format="%.5f", key="op1_c"); c_prev_c = st.number_input("Clôt. Bougie -1", value=1.10930, format="%.5f", key="cp1_c"); o_curr_c = st.number_input("Ouv. Bougie actuelle", value=1.10940, format="%.5f", key="opc_c"); h_curr_c = st.number_input("Plus haut actuelle", value=1.10980, format="%.5f", key="hpc_c"); l_curr_c = st.number_input("Plus bas actuelle", value=1.10920, format="%.5f", key="lpc_c"); h_prev_c = st.number_input("Plus haut bougie -1", value=1.10970, format="%.5f", key="hpp_c"); l_prev_c = st.number_input("Plus bas bougie -1", value=1.10910, format="%.5f", key="lpp_c")
+            figure_c = st.selectbox("Quelle figure tu vois ?", ["Je ne sais pas / Bougie normale", "🔨 Marteau Haussier", "⭐ Étoile Filante", "🟢 Englobante Haussière", "🔴 Englobante Baissière", "➖ Doji"], key="fig_c")
+            if st.button("🔎 ANALYSER MA CAPTURE - SANS CLÉ", type="primary", use_container_width=True):
+                patterns, ch_h, ch_b = analyse_chandelier_corrige(o_curr_c, h_curr_c, l_curr_c, prix_c, o_prev_c, h_prev_c, l_prev_c, c_prev_c, o_prev2_c, c_prev2_c)
+                if figure_c == "🔨 Marteau Haussier": ch_h += 2; patterns.append("🔨 Marteau Haussier (choisi par toi)")
+                if figure_c == "⭐ Étoile Filante": ch_b += 2; patterns.append("⭐ Étoile Filante (choisi par toi)")
+                if figure_c == "🟢 Englobante Haussière": ch_h += 2; patterns.append("🟢 Englobante Haussière (choisi par toi)")
+                if figure_c == "🔴 Englobante Baissière": ch_b += 2; patterns.append("🔴 Englobante Baissière (choisi par toi)")
+                if figure_c == "➖ Doji": patterns.append("➖ Doji (choisi par toi)")
+                st.write(f"**🕯️ Sur ta capture :** {', '.join(patterns)} | **WCCI :** {interprete_wcci(wcci_c)} | **Prix :** {prix_c:.5f}")
+                bullish = {"EMA 9 > EMA 21": ema9_c > ema21_c, "RSI > 50": rsi_c > 50, "CFO > 0": cfo_c > 0, "WCCI > 0": wcci_c > 0, "Prix > BB Moyenne": prix_c > bb_mid_c, "Bougie Verte": bougie_c=="Verte", "MACD Hist > 0": macd_c > 0, "ADX > 20 + +DI > -DI": adx_c > 20 and di_plus_c > di_minus_c, "Prix > BB Basse": prix_c > bb_low_c, "WCCI < 200": wcci_c < 200}
+                bearish = {"EMA 9 < EMA 21": ema9_c < ema21_c, "RSI < 50": rsi_c < 50, "CFO < 0": cfo_c < 0, "WCCI < 0": wcci_c < 0, "Prix < BB Moyenne": prix_c < bb_mid_c, "Bougie Rouge": bougie_c=="Rouge", "MACD Hist < 0": macd_c < 0, "ADX > 20 + -DI > +DI": adx_c > 20 and di_minus_c > di_plus_c, "Prix < BB Haute": prix_c < bb_up_c, "WCCI > -200": wcci_c > -200}
+                pos = donner_position(sum(bullish.values()), sum(bearish.values()), prix_c, support_c, resistance_c, bb_up_c, bb_low_c, bougie_c, macd_c, adx_c, di_plus_c, di_minus_c, rsi_c, wcci_c, ch_h, ch_b); afficher_position(pos, actif)
+    else:
+        st.info("👆 Envoie d'abord ta capture en haut pour l'analyser.")
 
 else:
     st.header(f"Entraînement - {actif} - 2 MIN")
@@ -524,30 +383,11 @@ else:
         if st.button("Analyser - Bougies 2 MIN"):
             data = yf.download(TICKER_YAHOO[actif], period="5d", interval="2m", progress=False, auto_adjust=False)
             if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
-            close = data["Close"]; prix_v = float(close.iloc[-1])
-            ema9_v = float(close.ewm(span=9).mean().iloc[-1]); ema21_v = float(close.ewm(span=21).mean().iloc[-1])
-            delta = close.diff(); gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean(); loss = -delta.clip(upper=0).ewm(alpha=1/14, adjust=False).mean()
-            rsi_v = float((100 - (100/(1+gain/loss.replace(0,np.nan)))).iloc[-1])
-            wcci_v = float(calcul_wcci_woodie(data).iloc[-1])
-            bb_mid_v = float(close.rolling(20).mean().iloc[-1]); bb_std = float(close.rolling(20).std(ddof=0).iloc[-1]); bb_up_v = bb_mid_v+2*bb_std; bb_low_v = bb_mid_v-2*bb_std
-            macd_v, sig_v, hist_v = calcul_macd(close); adx_v, pdi_v, mdi_v = calcul_adx(data)
-            o_v=float(data["Open"].iloc[-1]); h_v=float(data["High"].iloc[-1]); l_v=float(data["Low"].iloc[-1]); c_v=prix_v
-            o_p=float(data["Open"].iloc[-2]); h_p=float(data["High"].iloc[-2]); l_p=float(data["Low"].iloc[-2]); c_p=float(data["Close"].iloc[-2])
-            o_p2=float(data["Open"].iloc[-3]); c_p2=float(data["Close"].iloc[-3])
-            patterns, ch_h, ch_b = analyse_chandelier_corrige(o_v, h_v, l_v, c_v, o_p, h_p, l_p, c_p, o_p2, c_p2)
-            support_v=float(data["Low"].tail(30).min()); resistance_v=float(data["High"].tail(30).max())
-            st.success(f"Prix : {prix_v:.5f} | RSI : {rsi_v:.1f} | WCCI : {wcci_v:.1f} | EMA9 : {ema9_v:.5f} | EMA21 : {ema21_v:.5f}")
-            st.write(f"Bollinger : Haute {bb_up_v:.5f} / Moy {bb_mid_v:.5f} / Basse {bb_low_v:.5f}")
-            st.write(f"MACD : {macd_v:.5f} | Hist {hist_v:.5f} | ADX : {adx_v:.1f} | +DI {pdi_v:.1f} | -DI {mdi_v:.1f}")
-            st.write(f"WCCI : {interprete_wcci(wcci_v)} | 🕯️ : {', '.join(patterns)}")
-            st.write(f"Support : {support_v:.5f} | Résistance : {resistance_v:.5f}")
-            st.info("Recopie ces chiffres dans Mode SANS capture + ajoute CFO.")
-    else:
-        st.warning(f"{actif} n'existe pas sur Yahoo (OTC). Utilise Mode SANS capture avec les vrais chiffres en 2 MIN.")
+            close = data["Close"]; prix_v = float(close.iloc[-1]); ema9_v = float(close.ewm(span=9).mean().iloc[-1]); ema21_v = float(close.ewm(span=21).mean().iloc[-1]); delta = close.diff(); gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean(); loss = -delta.clip(upper=0).ewm(alpha=1/14, adjust=False).mean(); rsi_v = float((100 - (100/(1+gain/loss.replace(0,np.nan)))).iloc[-1]); wcci_v = float(calcul_wcci_woodie(data).iloc[-1]); bb_mid_v = float(close.rolling(20).mean().iloc[-1]); bb_std = float(close.rolling(20).std(ddof=0).iloc[-1]); bb_up_v = bb_mid_v+2*bb_std; bb_low_v = bb_mid_v-2*bb_std; macd_v, sig_v, hist_v = calcul_macd(close); adx_v, pdi_v, mdi_v = calcul_adx(data); o_v=float(data["Open"].iloc[-1]); h_v=float(data["High"].iloc[-1]); l_v=float(data["Low"].iloc[-1]); c_v=prix_v; o_p=float(data["Open"].iloc[-2]); h_p=float(data["High"].iloc[-2]); l_p=float(data["Low"].iloc[-2]); c_p=float(data["Close"].iloc[-2]); o_p2=float(data["Open"].iloc[-3]); c_p2=float(data["Close"].iloc[-3]); patterns, ch_h, ch_b = analyse_chandelier_corrige(o_v, h_v, l_v, c_v, o_p, h_p, l_p, c_p, o_p2, c_p2); support_v=float(data["Low"].tail(30).min()); resistance_v=float(data["High"].tail(30).max())
+            st.success(f"Prix : {prix_v:.5f} | RSI : {rsi_v:.1f} | WCCI : {wcci_v:.1f} | EMA9 : {ema9_v:.5f} | EMA21 : {ema21_v:.5f}"); st.write(f"Bollinger : Haute {bb_up_v:.5f} / Moy {bb_mid_v:.5f} / Basse {bb_low_v:.5f}"); st.write(f"MACD : {macd_v:.5f} | Hist {hist_v:.5f} | ADX : {adx_v:.1f} | +DI {pdi_v:.1f} | -DI {mdi_v:.1f}"); st.write(f"WCCI : {interprete_wcci(wcci_v)} | 🕯️ : {', '.join(patterns)}"); st.write(f"Support : {support_v:.5f} | Résistance : {resistance_v:.5f}"); st.info("Recopie ces chiffres dans Mode SANS capture + ajoute CFO.")
+    else: st.warning(f"{actif} n'existe pas sur Yahoo (OTC). Utilise Mode SANS capture avec les vrais chiffres en 2 MIN.")
 
 if st.button("🔄 Choisir une autre paire / action / période"):
-    st.session_state.verifier_clique = False
-    st.rerun()
-
+    st.session_state.verifier_clique = False; st.rerun()
 st.divider()
 st.warning("⚠️ BOUGIES 2 MIN OBLIGATOIRE. Expiration 1-19 mn au choix. Tous actifs IQ Option / Pocket Option. Outil d'analyse seulement. 2% max par trade, STOP après 3 pertes, JAMAIS de Martingale. Teste TOUJOURS en DÉMO.")
