@@ -1,3 +1,11 @@
+# ================= 🔑 CLÉ OPENAI - C'EST ICI =================
+# 👇👇 COLLE TA CLÉ ICI ENTRE LES GUILLEMETS 👇👇
+# Exemple : OPENAI_API_KEY_FIXE = "sk-proj-abc123..."
+# Tu la trouves sur : https://platform.openai.com/api-keys
+OPENAI_API_KEY_FIXE = "COLLE_TA_CLE_ICI"  # <-- Remplace COLLE_TA_CLE_ICI par ta vraie clé
+OPENAI_VISION_MODEL_FIXE = "gpt-5.5"  # Modèle pour lire la capture
+# 👆👆 FIN CLÉ OPENAI 👆👆
+
 import os
 import base64
 import streamlit as st
@@ -28,7 +36,35 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ================= LISTES PAR TYPE =================
+# ================= FONCTION POUR RÉCUPÉRER LA CLÉ =================
+def get_openai_key():
+    # 1. Priorité : clé tapée dans l'app (session)
+    if "cle_openai_session" in st.session_state and st.session_state.cle_openai_session:
+        return st.session_state.cle_openai_session.strip()
+    # 2. Clé fixe en haut du code
+    if OPENAI_API_KEY_FIXE and OPENAI_API_KEY_FIXE != "COLLE_TA_CLE_ICI" and OPENAI_API_KEY_FIXE.startswith("sk-"):
+        return OPENAI_API_KEY_FIXE.strip()
+    # 3. Secrets Streamlit
+    try:
+        cle_secrets = st.secrets.get("OPENAI_API_KEY", None)
+        if cle_secrets and cle_secrets.startswith("sk-"):
+            return cle_secrets.strip()
+    except Exception:
+        pass
+    # 4. Variable environnement
+    cle_env = os.getenv("OPENAI_API_KEY")
+    if cle_env and cle_env.startswith("sk-"):
+        return cle_env.strip()
+    return None
+
+def get_openai_model():
+    try:
+        m = st.secrets.get("OPENAI_VISION_MODEL", None)
+        if m: return m
+    except Exception: pass
+    return os.getenv("OPENAI_VISION_MODEL", OPENAI_VISION_MODEL_FIXE)
+
+# ================= LISTES =================
 PAIRES_FOREX = ["EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD",
 "EUR/GBP","EUR/JPY","EUR/CHF","EUR/AUD","EUR/CAD","EUR/NZD","GBP/JPY","GBP/CHF","GBP/AUD","GBP/CAD","GBP/NZD",
 "AUD/JPY","AUD/CHF","AUD/CAD","AUD/NZD","NZD/JPY","NZD/CHF","NZD/CAD","CAD/JPY","CAD/CHF","CHF/JPY",
@@ -64,15 +100,14 @@ if "mes_paires" not in st.session_state: st.session_state.mes_paires = []
 if "risk_journal" not in st.session_state: st.session_state.risk_journal = []
 if "dxy_cache" not in st.session_state: st.session_state.dxy_cache = None
 if "verifier_clique" not in st.session_state: st.session_state.verifier_clique = False
+if "cle_openai_session" not in st.session_state: st.session_state.cle_openai_session = ""
 
-# ================= ===== ACCUEIL MODIFIÉ SEULEMENT ICI ===== =================
+# ================= ACCUEIL =================
 st.markdown("# Binaire - IQ Option\n/ Pocket Option")
 
-# 1. CHOISIR LE TYPE : Paire ou Action ?
 st.write("Choisir le type")
 type_actif = st.selectbox("Choisir le type", ["💱 Paire Forex", "💱 Paire Forex OTC", "🏢 Action", "₿ Crypto", "📊 Indice", "🥇 Matière Première", "💵 Dollar Index", "➕ Mon actif perso"], index=0, label_visibility="collapsed")
 
-# 2. CHOISIR LA PAIRE / L'ACTION selon le type
 if type_actif == "💱 Paire Forex":
     st.write("Choisir la paire")
     actif = st.selectbox("Choisir la paire", PAIRES_FOREX, index=0, label_visibility="collapsed")
@@ -109,10 +144,8 @@ else:
             st.success(f"✅ {nouvel} ajouté !")
             st.rerun()
 
-# 3. CHOISIR LA PÉRIODE - 1 à 19 min
 st.write("Temps (expiration)")
 expiration = st.slider("Temps (expiration)", min_value=1, max_value=19, value=5, step=1, label_visibility="collapsed")
-# Petit aide pour la période
 if expiration == 1:
     st.caption("⚡ 1 mn = Très rapide, très risqué")
 elif expiration <= 3:
@@ -123,18 +156,43 @@ elif expiration <= 10:
     st.caption("🕐 7-10 mn = Moyen terme")
 else:
     st.caption("🕐 11-19 mn = Long, tendance forte")
-
 st.write(f"Tu as choisi : **{actif} - {expiration} mn**")
 st.caption("Bougies : 2 MIN fixe sur IQ Option / Pocket Option.")
 
-# 4. BOUTON ROUGE
+# --- 🔑 CLÉ OPENAI SUR L'ACCUEIL - POUR NE PAS L'OUBLIER ---
+st.divider()
+st.subheader("🔑 Clé OpenAI - Pour analyser la capture")
+cle_existante = get_openai_key()
+if cle_existante:
+    st.success("✅ Clé OpenAI active. La capture va marcher.")
+    with st.expander("Changer la clé"):
+        nouvelle_cle = st.text_input("Nouvelle clé OpenAI (sk-...)", type="password", placeholder="sk-proj-...", key="changer_cle")
+        if st.button("💾 Enregistrer cette clé"):
+            if nouvelle_cle and nouvelle_cle.startswith("sk-"):
+                st.session_state.cle_openai_session = nouvelle_cle.strip()
+                st.success("✅ Nouvelle clé enregistrée !")
+                st.rerun()
+            else:
+                st.error("❌ La clé doit commencer par sk-")
+else:
+    st.warning("⚠️ Pas de clé. Colle ta clé pour débloquer l'analyse par capture.")
+    cle_tapee = st.text_input("Ta clé OpenAI (sk-...)", type="password", placeholder="sk-proj-... colle ta clé ici", key="cle_accueil")
+    if cle_tapee:
+        if cle_tapee.startswith("sk-"):
+            st.session_state.cle_openai_session = cle_tapee.strip()
+            st.success("✅ Clé enregistrée pour cette session !")
+            st.rerun()
+        else:
+            st.error("❌ La clé doit commencer par sk-")
+    st.caption("Où trouver ta clé ? → https://platform.openai.com/api-keys → Create new secret key → Copie-la ici.")
+
 if st.button("Vérifier MAINTENANT"):
     st.session_state.verifier_clique = True
 
 if not st.session_state.verifier_clique:
     st.stop()
 
-# ================= APRÈS CLIC - LE RESTE NE CHANGE PAS =================
+# ================= APRÈS CLIC =================
 st.divider()
 st.caption(f"✅ Analyse pour : {actif} | Bougies 2 MIN | Expiration {expiration} mn")
 
@@ -404,9 +462,24 @@ if mode.startswith("SANS"):
         bearish = {"EMA 9 < EMA 21": ema9 < ema21, "RSI < 50": rsi < 50, "CFO < 0": cfo_val < 0, "WCCI < 0": wcci_val < 0, "Prix < BB Moyenne": prix < bb_mid, "Bougie Rouge": bougie=="Rouge", "MACD Hist < 0": macd_val < 0, "ADX > 20 + -DI > +DI": adx_val > 20 and di_minus > di_plus, "Prix < BB Haute": prix < bb_up, "WCCI > -200": wcci_val > -200}
         pos = donner_position(sum(bullish.values()), sum(bearish.values()), prix, support, resistance, bb_up, bb_low, bougie, macd_val, adx_val, di_plus, di_minus, rsi, wcci_val, ch_h, ch_b)
         afficher_position(pos, actif)
+
 elif mode.startswith("AVEC"):
     st.header(f"Capture - {actif} - 2 MIN - Exp {expiration} mn")
     st.warning("📸 Avant ta capture, vérifie : IQ Option / Pocket Option est bien en 2 MIN.")
+
+    # --- 🔑 VÉRIFICATION CLÉ DANS LE MODE CAPTURE AUSSI ---
+    cle_capture = get_openai_key()
+    if cle_capture:
+        st.success("✅ Clé OpenAI active - La capture va être analysée.")
+    else:
+        st.error("❌ Pas de clé OpenAI. Retourne à l'accueil et colle ta clé dans '🔑 Clé OpenAI' ou mets-la en haut du code.")
+        cle_manuelle_capture = st.text_input("Colle ta clé ici pour débloquer (sk-...)", type="password", placeholder="sk-proj-...", key="cle_capture_direct")
+        if cle_manuelle_capture and cle_manuelle_capture.startswith("sk-"):
+            st.session_state.cle_openai_session = cle_manuelle_capture.strip()
+            st.success("✅ Clé enregistrée ! Clique à nouveau sur ANALYSER.")
+            st.rerun()
+        st.stop()
+
     uploaded = st.file_uploader("Ta capture en 2 MIN", type=["png","jpg","jpeg","webp"])
     if uploaded:
         st.image(uploaded, caption="Ta capture 2 MIN", use_container_width=True)
@@ -417,20 +490,34 @@ elif mode.startswith("AVEC"):
         resistance2 = st.number_input("Résistance visible", value=1.11020, format="%.5f", key="r2")
         qualite = st.selectbox("Qualité capture", ["Bonne - tout est lisible", "Moyenne - un peu flou", "Mauvaise - flou / petit"])
         if st.button("🧠 ANALYSER LA CAPTURE - 2 MIN + DOUBLE DXY", type="primary", use_container_width=True):
-            api_key = None
-            try: api_key = st.secrets.get("OPENAI_API_KEY", None)
-            except Exception: pass
-            api_key = api_key or os.getenv("OPENAI_API_KEY")
-            if not api_key or OpenAI is None:
-                st.warning("Pas de clé OpenAI. Utilise Mode SANS capture.")
-            else:
-                try:
-                    mime = uploaded.type or "image/png"; encoded = base64.b64encode(uploaded.getvalue()).decode("utf-8"); data_url = f"data:{mime};base64,{encoded}"
-                    client = OpenAI(api_key=api_key)
-                    prompt = f"Tu es un analyste PRO IQ Option / Pocket Option. Actif : {actif}. BOUGIES 2 MIN. Expiration : {expiration} mn. Support : {support2}. Résistance : {resistance2}. DOUBLE FILTRE DXY : {alerte_dxy} Qualité : {qualite}. Vu : RSI={voir_rsi}, WCCI={voir_wcci}, MACD={voir_macd}, ADX={voir_adx}, Bollinger={voir_boll}, EMA={voir_ema}. Lis zone par zone : PRIX, BOUGIES 2 MIN, BOLLINGER, RSI, WCCI WOODIE (ne jamais inventer), MACD, ADX, EMA. Si contradiction avec DXY -> ATTENDRE FORCÉ. Si ADX<20 -> ATTENDRE. Donne : tableau lecture, contradictions, OÙ ENTRER, CONDITION, OBJECTIF, INVALIDATION, RISQUE, CONCLUSION CALL/PUT/ATTENDRE + score /12. Ne garantis jamais un gain. Si illisible, dis ILLISIBLE."
-                    resp = client.responses.create(model=os.getenv("OPENAI_VISION_MODEL","gpt-5.5"), input=[{"role":"user","content":[{"type":"input_text","text":prompt},{"type":"input_image","image_url":data_url,"detail":"high"}]}])
+            cle_finale = get_openai_key()
+            if not cle_finale or OpenAI is None:
+                st.error("❌ Pas de clé OpenAI. Colle ta clé en haut.")
+                st.stop()
+            try:
+                mime = uploaded.type or "image/png"
+                encoded = base64.b64encode(uploaded.getvalue()).decode("utf-8")
+                data_url = f"data:{mime};base64,{encoded}"
+                client = OpenAI(api_key=cle_finale)
+                prompt = f"""
+Tu es un analyste PRO IQ Option / Pocket Option. Actif : {actif}. BOUGIES 2 MIN. Expiration : {expiration} mn. Support : {support2}. Résistance : {resistance2}.
+DOUBLE FILTRE DXY : {alerte_dxy}
+Qualité : {qualite}. Vu : RSI={voir_rsi}, WCCI={voir_wcci}, MACD={voir_macd}, ADX={voir_adx}, Bollinger={voir_boll}, EMA={voir_ema}.
+Lis zone par zone : PRIX, BOUGIES 2 MIN, BOLLINGER, RSI, WCCI WOODIE (ne jamais inventer), MACD, ADX, EMA.
+Si contradiction avec DXY -> ATTENDRE FORCÉ. Si ADX<20 -> ATTENDRE.
+Donne : tableau lecture, contradictions, OÙ ENTRER, CONDITION, OBJECTIF, INVALIDATION, RISQUE, CONCLUSION CALL/PUT/ATTENDRE + score /12.
+Ne garantis jamais un gain. Si illisible, dis ILLISIBLE.
+"""
+                with st.spinner("🧠 L'IA lit ta capture en 2 MIN..."):
+                    resp = client.responses.create(model=get_openai_model(), input=[{"role":"user","content":[{"type":"input_text","text":prompt},{"type":"input_image","image_url":data_url,"detail":"high"}]}])
                     st.markdown(resp.output_text)
-                except Exception as e: st.error(f"Erreur IA : {e}")
+            except Exception as e:
+                st.error(f"Erreur IA : {e}")
+                if "invalid_api_key" in str(e).lower() or "401" in str(e):
+                    st.error("❌ Clé fausse ou expirée. Crée une nouvelle clé sur platform.openai.com/api-keys")
+                elif "quota" in str(e).lower() or "insufficient" in str(e).lower():
+                    st.error("❌ Plus de crédit OpenAI. Ajoute 5$ sur platform.openai.com → Billing.")
+
 else:
     st.header(f"Entraînement - {actif} - 2 MIN")
     if actif in TICKER_YAHOO:
