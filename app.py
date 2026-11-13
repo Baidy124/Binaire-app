@@ -30,16 +30,26 @@ def get_client_auto():
 client_auto = get_client_auto()
 CLE_ACTIVE = client_auto is not None
 
-st.set_page_config(page_title="IQ OPTION BINAIRE V2 PRO + SCALPING + 3 BOUGIES - SANS FILTRE", page_icon="📈", layout="wide")
-st.title("📈 IQ OPTION BINAIRE - V2 PRO + ⚡ SCALPING + 🕯️ 3 BOUGIES")
-st.caption("SANS filtre anti-faux signaux - Plus de signaux, plus de risque")
+# ================= ⚙️ RÉGLAGES DU FILTRE ANTI-SIGNAL - DOUX =================
+# C'EST ICI QUE TU BAISSES LES CRITIQUES. Change les chiffres si tu veux encore plus doux ou plus strict.
+# Plus le chiffre est BAS, plus tu as de signaux, mais plus de risque.
+SEUIL_V2PRO = 4          # Avant : 6. Maintenant : 4/6 suffit pour CALL/PUT. Mets 5 si tu veux un peu plus strict, 3 si tu veux encore plus de signaux.
+SEUIL_SCALPING = 3       # Avant : 4. Maintenant : 3/6 suffit pour Scalping.
+SEUIL_VOLATILITE = 0.00001  # Avant : 0.00002. Maintenant : on bloque seulement si vraiment aucune volatilité. Mets 0.000005 si tu veux encore plus doux.
+DISTANCE_SUPPORT = 0.10     # Avant : 0.30. Maintenant : on bloque seulement si prix collé à 0.10 x ATR du Support/Résistance. Mets 0.05 si tu veux presque jamais bloquer.
+SEUIL_CORPS_BOUGIE = 0.08   # Avant : 0.15. Maintenant : on accepte les bougies avec corps > 8%. Mets 0.05 si tu veux accepter même les très petites.
+NB_DOJI_POUR_BLOQUER = 3    # Avant : 2. Maintenant : il faut 3 Doji sur 3 pour bloquer. Mets 2 si tu veux re-bloquer plus vite.
+
+st.set_page_config(page_title="IQ OPTION V2 PRO + SCALPING + FILTRE DOUX", page_icon="📈", layout="wide")
+st.title("📈 IQ OPTION BINAIRE - V2 PRO + ⚡ SCALPING + 🕯️ 3 BOUGIES + FILTRE DOUX")
+st.caption(f"Filtre anti-signal BAISSÉ : V2 PRO {SEUIL_V2PRO}/6 | Scalping {SEUIL_SCALPING}/6 | Plus de signaux")
 
 if CLE_ACTIVE:
     st.success("✅ Clé OpenAI AUTOMATIQUE active")
 else:
     st.info("ℹ️ Pas de clé automatique. Capture en MANUEL.")
 
-st.warning("⚠️ FILTRE ANTI-FAUX SIGNAUX SUPPRIMÉ : Le robot donne maintenant un signal même si la volatilité est faible, même si c'est un Doji, même si le Support/Résistance est proche. Tu auras plus de signaux, mais plus de pertes possibles. Utilise un petit montant.")
+st.info(f"⚙️ Filtre DOUX activé : V2 PRO = {SEUIL_V2PRO}/6 | Scalping = {SEUIL_SCALPING}/6 | Volatilité min = {SEUIL_VOLATILITE} | Distance Support = {DISTANCE_SUPPORT} x ATR | Corps bougie min = {SEUIL_CORPS_BOUGIE*100:.0f}% | Doji pour bloquer = {NB_DOJI_POUR_BLOQUER}/3. Tu peux changer ces chiffres en haut du code.")
 
 PAIRES = {
     "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X", "USD/CHF": "USDCHF=X",
@@ -56,7 +66,7 @@ PAIRES = {
 }
 
 st.subheader("🎯 Choisis ton mode")
-mode = st.radio("Mode :", ["📊 V2 PRO - Normal (1 à 19 mn, 6/6)", "⚡ SCALPING - Rapide (1 à 5 mn, 4/6)"], index=0)
+mode = st.radio("Mode :", [f"📊 V2 PRO - Normal (1 à 19 mn, {SEUIL_V2PRO}/6)", f"⚡ SCALPING - Rapide (1 à 5 mn, {SEUIL_SCALPING}/6)"], index=0)
 
 col1, col2 = st.columns(2)
 with col1:
@@ -128,7 +138,6 @@ def calculer_indicateurs(df):
     df["RESISTANCE"] = high.rolling(30).max().shift(1)
     return df
 
-# ================= 🕯️ ANALYSE DES 3 DERNIÈRES BOUGIES =================
 def decrire_une_bougie(row):
     corps = abs(row["Close"] - row["Open"])
     amplitude = row["High"] - row["Low"]
@@ -152,9 +161,9 @@ def analyser_trois_bougies(df):
     desc2, dir2, ratio2 = decrire_une_bougie(b2)
     desc1, dir1, ratio1 = decrire_une_bougie(b1)
     liste = [
-        {"Bougie": "Bougie -3 (la plus ancienne)", "Type": desc3, "Direction": dir3, "Open": round(float(b3["Open"]),5), "Close": round(float(b3["Close"]),5), "Corps %": round(ratio3*100,1)},
-        {"Bougie": "Bougie -2 (au milieu)", "Type": desc2, "Direction": dir2, "Open": round(float(b2["Open"]),5), "Close": round(float(b2["Close"]),5), "Corps %": round(ratio2*100,1)},
-        {"Bougie": "Bougie -1 (la plus récente)", "Type": desc1, "Direction": dir1, "Open": round(float(b1["Open"]),5), "Close": round(float(b1["Close"]),5), "Corps %": round(ratio1*100,1)},
+        {"Bougie": "Bougie -3", "Type": desc3, "Direction": dir3, "Open": round(float(b3["Open"]),5), "Close": round(float(b3["Close"]),5), "Corps %": round(ratio3*100,1)},
+        {"Bougie": "Bougie -2", "Type": desc2, "Direction": dir2, "Open": round(float(b2["Open"]),5), "Close": round(float(b2["Close"]),5), "Corps %": round(ratio2*100,1)},
+        {"Bougie": "Bougie -1", "Type": desc1, "Direction": dir1, "Open": round(float(b1["Open"]),5), "Close": round(float(b1["Close"]),5), "Corps %": round(ratio1*100,1)},
     ]
     nb_hausse = sum([1 for d in [dir3, dir2, dir1] if d == "HAUSSE"])
     nb_baisse = sum([1 for d in [dir3, dir2, dir1] if d == "BAISSE"])
@@ -162,43 +171,35 @@ def analyser_trois_bougies(df):
     figure_3 = "Aucune figure spéciale"; direction_3 = "NEUTRE"; force_3 = "Faible"
     if nb_hausse == 3:
         if b1["Close"] > b2["Close"] > b3["Close"]:
-            figure_3 = "🟢 3 Soldats Blancs - 3 vertes qui montent"; direction_3 = "HAUSSE"; force_3 = "Forte"
+            figure_3 = "🟢 3 Soldats Blancs"; direction_3 = "HAUSSE"; force_3 = "Forte"
         else:
             figure_3 = "🟢 3 Bougies Vertes"; direction_3 = "HAUSSE"; force_3 = "Moyenne"
     elif nb_baisse == 3:
         if b1["Close"] < b2["Close"] < b3["Close"]:
-            figure_3 = "🔴 3 Corbeaux Noirs - 3 rouges qui descendent"; direction_3 = "BAISSE"; force_3 = "Forte"
+            figure_3 = "🔴 3 Corbeaux Noirs"; direction_3 = "BAISSE"; force_3 = "Forte"
         else:
             figure_3 = "🔴 3 Bougies Rouges"; direction_3 = "BAISSE"; force_3 = "Moyenne"
     elif nb_hausse == 2 and nb_baisse == 1:
         if dir1 == "HAUSSE":
-            figure_3 = "🟢 2 Vertes / 1 Rouge - La dernière est verte"; direction_3 = "HAUSSE"; force_3 = "Moyenne"
+            figure_3 = "🟢 2 Vertes / 1 Rouge - Dernière verte"; direction_3 = "HAUSSE"; force_3 = "Moyenne"
         else:
-            figure_3 = "🟡 2 Vertes / 1 Rouge - Mais la dernière est rouge"; direction_3 = "NEUTRE"; force_3 = "Faible"
+            figure_3 = "🟡 2 Vertes / 1 Rouge - Dernière rouge"; direction_3 = "NEUTRE"; force_3 = "Faible"
     elif nb_baisse == 2 and nb_hausse == 1:
         if dir1 == "BAISSE":
-            figure_3 = "🔴 2 Rouges / 1 Verte - La dernière est rouge"; direction_3 = "BAISSE"; force_3 = "Moyenne"
+            figure_3 = "🔴 2 Rouges / 1 Verte - Dernière rouge"; direction_3 = "BAISSE"; force_3 = "Moyenne"
         else:
-            figure_3 = "🟡 2 Rouges / 1 Verte - Mais la dernière est verte"; direction_3 = "NEUTRE"; force_3 = "Faible"
+            figure_3 = "🟡 2 Rouges / 1 Verte - Dernière verte"; direction_3 = "NEUTRE"; force_3 = "Faible"
     elif nb_doji >= 2:
-        figure_3 = "🟡 Beaucoup de Doji - Marché indécis"; direction_3 = "NEUTRE"; force_3 = "Faible"
+        figure_3 = "🟡 Beaucoup de Doji"; direction_3 = "NEUTRE"; force_3 = "Faible"
     elif nb_doji == 1:
-        figure_3 = "🟡 1 Doji sur 3 bougies - Petite hésitation"
+        figure_3 = "🟡 1 Doji sur 3"
         if nb_hausse == 2:
             direction_3 = "HAUSSE"; force_3 = "Faible"
         elif nb_baisse == 2:
             direction_3 = "BAISSE"; force_3 = "Faible"
     return {"liste": liste, "figure_3": figure_3, "direction_3": direction_3, "force_3": force_3, "nb_hausse": nb_hausse, "nb_baisse": nb_baisse, "nb_doji": nb_doji, "chandelier": figure_3, "direction": direction_3}
 
-# ================= ❌ FILTRE ANTI-FAUX SIGNAUX SUPPRIMÉ =================
-# AVANT, il y avait ici :
-# - if volatilite_faible -> ATTENDRE
-# - if bougie_faible / Doji -> ATTENDRE
-# - if proche_support / proche_resistance -> ATTENDRE
-# MAINTENANT, c'est SUPPRIMÉ. On ne bloque plus.
-# On regarde juste : Score + Direction des 3 bougies + EMA5/RSI7 pour Scalping.
-# Support / Résistance sont juste affichés pour info, ils ne bloquent plus.
-
+# ================= 🛡️ FILTRE DOUX - BAISSÉ =================
 def analyser_signal(df, is_scalping=False):
     c = df.iloc[-1]
     prix = c["Close"]; atr = c["ATR"]
@@ -210,51 +211,62 @@ def analyser_signal(df, is_scalping=False):
     chandelier = info_3["chandelier"]; direction = info_3["direction"]
     score_haut = sum(indicateurs_haut); score_bas = sum(indicateurs_bas)
     support = c["SUPPORT"]; resistance = c["RESISTANCE"]
-    # On calcule proche_support / proche_resistance juste pour AFFICHAGE, pas pour bloquer
-    proche_support = (pd.notna(support) and atr > 0 and prix - support <= atr * 0.30)
-    proche_resistance = (pd.notna(resistance) and atr > 0 and resistance - prix <= atr * 0.30)
+
+    # --- Filtre DOUX : on utilise les réglages du haut ---
+    proche_support = (pd.notna(support) and atr > 0 and prix - support <= atr * DISTANCE_SUPPORT)
+    proche_resistance = (pd.notna(resistance) and atr > 0 and resistance - prix <= atr * DISTANCE_SUPPORT)
+    volatilite_faible = (pd.isna(atr) or atr <= 0 or atr / prix < SEUIL_VOLATILITE)
+    # Bougie faible DOUCE : on regarde la dernière bougie, mais seuil baissé à 8%
+    derniere = df.iloc[-1]
+    amp_der = derniere["High"] - derniere["Low"]
+    corps_der = abs(derniere["Close"] - derniere["Open"])
+    bougie_faible = (amp_der <= 0 or corps_der / amp_der < SEUIL_CORPS_BOUGIE)
+    trop_de_doji = (info_3["nb_doji"] >= NB_DOJI_POUR_BLOQUER)
+
+    seuil = SEUIL_SCALPING if is_scalping else SEUIL_V2PRO
+
+    # 1. Volatilité vraiment trop faible -> on bloque encore, mais c'est rare maintenant
+    if volatilite_faible:
+        return {"signal": "ATTENDRE", "raison": f"Filtre DOUX : Volatilité vraiment trop faible (< {SEUIL_VOLATILITE})", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+    # 2. Trop de Doji -> on bloque, mais il faut 3 Doji maintenant
+    if trop_de_doji:
+        return {"signal": "ATTENDRE", "raison": f"Filtre DOUX : {info_3['nb_doji']} Doji sur 3 - Marché vraiment indécis", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+    # 3. Bougie vraiment trop petite -> on bloque, mais seuil baissé
+    if bougie_faible and direction == "NEUTRE":
+        return {"signal": "ATTENDRE", "raison": f"Filtre DOUX : Dernière bougie trop petite (< {SEUIL_CORPS_BOUGIE*100:.0f}% de corps) + direction neutre", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
 
     if is_scalping:
         scalp_haut_rapide = (c["EMA5"] > c["EMA9"] and c["RSI7"] > 50)
         scalp_bas_rapide = (c["EMA5"] < c["EMA9"] and c["RSI7"] < 50)
-        # SANS FILTRE : même si volatilité faible ou Doji, on donne un signal si score + 3 bougies sont d'accord
-        # Si les 3 bougies sont NEUTRE (que des Doji), on prend la direction du score le plus fort
-        if score_haut >= 4 and scalp_haut_rapide:
-            # Si 3 bougies HAUSSE ou même NEUTRE mais score fort, on donne CALL
-            return {"signal": "CALL / HAUSSE", "raison": f"SCALPING SANS FILTRE : {score_haut}/6 + EMA5 > EMA9 + RSI7 > 50 - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "HAUSSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-        if score_bas >= 4 and scalp_bas_rapide:
-            return {"signal": "PUT / BAISSE", "raison": f"SCALPING SANS FILTRE : {score_bas}/6 + EMA5 < EMA9 + RSI7 < 50 - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "BAISSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-        # Si score_haut > score_bas, on donne CALL même si 3 bougies pas parfaites (SANS FILTRE)
-        if score_haut > score_bas and score_haut >= 3:
-            return {"signal": "CALL / HAUSSE", "raison": f"SCALPING SANS FILTRE : Score HAUSSE {score_haut} > BAISSE {score_bas} - On prend CALL", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "HAUSSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-        if score_bas > score_haut and score_bas >= 3:
-            return {"signal": "PUT / BAISSE", "raison": f"SCALPING SANS FILTRE : Score BAISSE {score_bas} > HAUSSE {score_haut} - On prend PUT", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "BAISSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-        return {"signal": "ATTENDRE", "raison": "SCALPING SANS FILTRE : Scores égaux, impossible de choisir", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+        if score_haut >= seuil and scalp_haut_rapide and not proche_resistance:
+            return {"signal": "CALL / HAUSSE", "raison": f"SCALPING FILTRE DOUX : {score_haut}/6 + EMA5 > EMA9 + RSI7 > 50 - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "HAUSSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+        if score_bas >= seuil and scalp_bas_rapide and not proche_support:
+            return {"signal": "PUT / BAISSE", "raison": f"SCALPING FILTRE DOUX : {score_bas}/6 + EMA5 < EMA9 + RSI7 < 50 - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "BAISSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+        # Si Support/Résistance bloque, on l'explique, mais comme la distance est petite, ça arrive rarement
+        if score_haut >= seuil and proche_resistance:
+            return {"signal": "ATTENDRE", "raison": f"Filtre DOUX : Score HAUSSE {score_haut} bon, mais vraiment collé à la Résistance", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+        if score_bas >= seuil and proche_support:
+            return {"signal": "ATTENDRE", "raison": f"Filtre DOUX : Score BAISSE {score_bas} bon, mais vraiment collé au Support", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+        return {"signal": "ATTENDRE", "raison": f"SCALPING FILTRE DOUX : Pas {seuil}/6 + EMA5/RSI7 - Attends 1 bougie", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
 
-    # V2 PRO SANS FILTRE
-    if score_haut >= 6:
-        return {"signal": "CALL / HAUSSE", "raison": f"SANS FILTRE : 6/6 HAUSSE - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "HAUSSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-    if score_bas >= 6:
-        return {"signal": "PUT / BAISSE", "raison": f"SANS FILTRE : 6/6 BAISSE - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "BAISSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-    # SANS FILTRE : si pas 6/6, on prend quand même le plus fort à partir de 4/6
-    if score_haut >= 4 and score_haut > score_bas:
-        return {"signal": "CALL / HAUSSE", "raison": f"SANS FILTRE : Score HAUSSE {score_haut}/6 > BAISSE {score_bas}/6 - On prend CALL même sans 6/6", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "HAUSSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-    if score_bas >= 4 and score_bas > score_haut:
-        return {"signal": "PUT / BAISSE", "raison": f"SANS FILTRE : Score BAISSE {score_bas}/6 > HAUSSE {score_haut}/6 - On prend PUT même sans 6/6", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "BAISSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-    # Même à 3/6, on choisit le plus fort - SANS FILTRE
-    if score_haut > score_bas:
-        return {"signal": "CALL / HAUSSE", "raison": f"SANS FILTRE : Score HAUSSE {score_haut} > BAISSE {score_bas} - On prend CALL", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "HAUSSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-    if score_bas > score_haut:
-        return {"signal": "PUT / BAISSE", "raison": f"SANS FILTRE : Score BAISSE {score_bas} > HAUSSE {score_haut} - On prend PUT", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "BAISSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
-    return {"signal": "ATTENDRE", "raison": "Scores égaux, impossible de choisir", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+    # V2 PRO FILTRE DOUX
+    if score_haut >= seuil and not proche_resistance:
+        return {"signal": "CALL / HAUSSE", "raison": f"FILTRE DOUX : {score_haut}/6 HAUSSE - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "HAUSSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+    if score_bas >= seuil and not proche_support:
+        return {"signal": "PUT / BAISSE", "raison": f"FILTRE DOUX : {score_bas}/6 BAISSE - 3 bougies : {chandelier}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": "BAISSE", "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+    if score_haut >= seuil and proche_resistance:
+        return {"signal": "ATTENDRE", "raison": "Filtre DOUX : Score bon mais vraiment collé à la Résistance", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+    if score_bas >= seuil and proche_support:
+        return {"signal": "ATTENDRE", "raison": "Filtre DOUX : Score bon mais vraiment collé au Support", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
+    return {"signal": "ATTENDRE", "raison": f"Filtre DOUX : Pas {seuil}/6 - Score HAUSSE {score_haut}, BAISSE {score_bas}", "score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance}
 
 if st.button("🔍 ANALYSER MAINTENANT", type="primary"):
     is_scalp = mode.startswith("⚡")
-    with st.spinner("Analyse SANS filtre..."):
+    with st.spinner("Analyse avec filtre doux..."):
         ticker = PAIRES[paire]
         df = recuperer_donnees(ticker)
         if df.empty or len(df) < 100:
-            st.error("Données insuffisantes. Essaie une autre paire.")
+            st.error("Données insuffisantes.")
         else:
             df = calculer_indicateurs(df)
             df = df.iloc[:-1].copy()
@@ -265,29 +277,19 @@ if st.button("🔍 ANALYSER MAINTENANT", type="primary"):
                 analyse = analyser_signal(df, is_scalping=is_scalp)
                 c = df.iloc[-1]
                 st.divider()
-                if is_scalp:
-                    st.subheader("⚡ Résultat SCALPING - SANS FILTRE")
-                else:
-                    st.subheader("📊 Résultat V2 PRO - SANS FILTRE")
+                st.subheader(f"🎯 SIGNAL - FILTRE DOUX ({SEUIL_V2PRO}/6 V2 PRO, {SEUIL_SCALPING}/6 Scalping)")
                 st.metric("Prix", f"{c['Close']:.5f}")
                 st.metric("RSI 14", f"{c['RSI']:.2f}")
-                st.metric("RSI 7 - Rapide", f"{c['RSI7']:.2f}")
+                st.metric("RSI 7", f"{c['RSI7']:.2f}")
                 st.metric("EMA 5 / 9 / 21", f"{c['EMA5']:.5f} / {c['EMA9']:.5f} / {c['EMA21']:.5f}")
                 st.metric("WCCI 14", f"{c['WCCI']:.2f}")
                 st.metric("CFO 14", f"{c['CFO']:.4f}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("MACD", f"{c['MACD']:.5f}")
-                with col2:
-                    st.metric("MACD Histogramme", f"{c['MACD_HIST']:.5f}")
-                st.divider()
-                st.subheader("🎯 SIGNAL - SANS FILTRE")
                 if analyse["signal"] == "CALL / HAUSSE":
                     st.success(f"🟢 CALL - {expiration} mn")
                 elif analyse["signal"] == "PUT / BAISSE":
                     st.error(f"🔴 PUT - {expiration} mn")
                 else:
-                    st.warning("⏳ ATTENDRE - Scores égaux")
+                    st.warning("⏳ ATTENDRE")
                 st.write("**Motif :**", analyse["raison"])
                 col1, col2 = st.columns(2)
                 with col1:
@@ -297,90 +299,75 @@ if st.button("🔍 ANALYSER MAINTENANT", type="primary"):
                 st.divider()
                 st.subheader("🕯️ Les 3 Dernières Bougies")
                 st.info(f"**Figure :** {analyse['info_3']['figure_3']} | **Vertes :** {analyse['info_3']['nb_hausse']} | **Rouges :** {analyse['info_3']['nb_baisse']} | **Doji :** {analyse['info_3']['nb_doji']}")
-                df_3 = pd.DataFrame(analyse["info_3"]["liste"])
-                st.dataframe(df_3, use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(analyse["info_3"]["liste"]), use_container_width=True, hide_index=True)
                 st.divider()
-                st.subheader("📍 Support et résistance - Affiché pour info, ne bloque plus")
+                st.subheader("📍 Support et résistance - Filtre DOUX")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("Support", f"{analyse['support']:.5f}" if pd.notna(analyse["support"]) else "Indisponible")
                     if analyse["proche_support"]:
-                        st.caption("⚠️ Prix proche du Support, mais on ne bloque plus (filtre supprimé)")
+                        st.caption(f"⚠️ Collé au Support (< {DISTANCE_SUPPORT} x ATR) - Filtre doux bloque")
                 with col2:
                     st.metric("Résistance", f"{analyse['resistance']:.5f}" if pd.notna(analyse["resistance"]) else "Indisponible")
                     if analyse["proche_resistance"]:
-                        st.caption("⚠️ Prix proche de la Résistance, mais on ne bloque plus (filtre supprimé)")
+                        st.caption(f"⚠️ Collé à la Résistance (< {DISTANCE_SUPPORT} x ATR) - Filtre doux bloque")
                 st.subheader("📋 Tableau des confirmations")
                 confirmations = pd.DataFrame({
-                    "Indicateur": ["EMA 9 / 21 / 50", "RSI 14", "WCCI 14", "CFO 14", "MACD", "Bollinger Bands", "3 Bougies"],
+                    "Indicateur": ["EMA 9 / 21 / 50", "RSI 14", "WCCI 14", "CFO 14", "MACD", "Bollinger", "3 Bougies"],
                     "HAUSSE": [c["EMA9"] > c["EMA21"] > c["EMA50"], 50 < c["RSI"] < 70, c["WCCI"] > 0, c["CFO"] > 0, c["MACD_HIST"] > 0, c["Close"] > c["BB_MID"], analyse["direction"] == "HAUSSE"],
                     "BAISSE": [c["EMA9"] < c["EMA21"] < c["EMA50"], 30 < c["RSI"] < 50, c["WCCI"] < 0, c["CFO"] < 0, c["MACD_HIST"] < 0, c["Close"] < c["BB_MID"], analyse["direction"] == "BAISSE"]
                 })
                 st.dataframe(confirmations, use_container_width=True, hide_index=True)
                 st.subheader("📈 Graphique")
-                graphique = df[["Close", "BB_UPPER", "BB_MID", "BB_LOWER", "EMA5", "EMA9", "EMA21"]].tail(100)
-                st.line_chart(graphique)
+                st.line_chart(df[["Close", "BB_UPPER", "BB_MID", "BB_LOWER", "EMA5", "EMA9", "EMA21"]].tail(100))
 
-# ================= 📸 CAPTURE - SANS FILTRE =================
+# ================= 📸 CAPTURE - FILTRE DOUX =================
 st.divider()
-st.header(f"📸 Analyser ma capture - {paire} - {expiration} mn - SANS FILTRE")
-st.caption("La capture aussi est SANS filtre. L'IA va donner CALL ou PUT même si c'est pas propre.")
-
+st.header(f"📸 Analyser ma capture - {paire} - {expiration} mn - FILTRE DOUX")
 if CLE_ACTIVE:
     st.success("✅ AUTO IA active")
     mode_capture = st.radio("Mode capture :", ["🤖 AUTO IA", "✍️ MANUEL"], index=0, horizontal=True)
 else:
-    st.warning("⚠️ Pas de clé. Utilise MANUEL.")
     mode_capture = st.radio("Mode capture :", ["✍️ MANUEL", "🤖 AUTO IA"], index=0, horizontal=True)
-
-uploaded = st.file_uploader("Envoie ta capture", type=["png","jpg","jpeg","webp"], key="capture_sans_filtre")
+uploaded = st.file_uploader("Envoie ta capture", type=["png","jpg","jpeg","webp"], key="capture_doux")
 if uploaded:
     st.image(uploaded, caption="Ta capture", use_container_width=True)
     if mode_capture.startswith("🤖"):
         if not CLE_ACTIVE:
             st.error("❌ Mets ta clé dans Secrets ou utilise MANUEL.")
         else:
-            if st.button("🧠 ANALYSER MA CAPTURE - SANS FILTRE", type="primary", use_container_width=True):
+            if st.button("🧠 ANALYSER MA CAPTURE - FILTRE DOUX", type="primary", use_container_width=True):
                 try:
                     mime = uploaded.type or "image/png"
                     encoded = base64.b64encode(uploaded.getvalue()).decode("utf-8")
                     data_url = f"data:{mime};base64,{encoded}"
-                    # PROMPT SANS FILTRE : on dit à l'IA de ne pas bloquer
-                    prompt = f"Tu es un analyste PRO IQ Option. Actif : {paire}. Analyse les 3 dernières bougies FERMÉES, ignore la bougie en cours. Expiration : {expiration} mn. MODE SANS FILTRE : Ne dis JAMAIS ATTENDRE à cause de volatilité faible, Doji, ou Support/Résistance proche. Donne toujours CALL ou PUT selon le score le plus fort, même si c'est 3/6. Si scores égaux, choisis selon la dernière bougie. Donne : tableau 3 bougies, score /6, OÙ ENTRER, CONCLUSION CALL ou PUT. Ne garantis jamais un gain. Si illisible, dis ILLISIBLE."
-                    with st.spinner("🧠 L'IA lit ta capture SANS filtre..."):
+                    prompt = f"Tu es un analyste PRO IQ Option avec FILTRE DOUX. Actif : {paire}. Analyse les 3 dernières bougies FERMÉES. Expiration : {expiration} mn. Règles FILTRE DOUX : Il faut {SEUIL_V2PRO}/6 pour V2 PRO, {SEUIL_SCALPING}/6 pour Scalping. Ne bloque que si : 3 Doji sur 3, ou volatilité vraiment nulle, ou prix VRAIMENT collé au Support/Résistance (<0.10 x ATR). Sinon donne CALL ou PUT selon le score le plus fort. Donne : tableau 3 bougies, score /6, OÙ ENTRER, CONCLUSION CALL/PUT/ATTENDRE. Ne garantis jamais un gain. Si illisible, dis ILLISIBLE."
+                    with st.spinner("🧠 L'IA lit ta capture..."):
                         resp = client_auto.responses.create(model="gpt-5.5", input=[{"role":"user","content":[{"type":"input_text","text":prompt},{"type":"input_image","image_url":data_url,"detail":"high"}]}])
                         st.markdown(resp.output_text)
                 except Exception as e:
                     st.error(f"Erreur IA : {e}")
     else:
-        st.success("✅ MANUEL - SANS FILTRE")
         c1, c2, c3 = st.columns(3)
-        b3_m = c1.selectbox("Bougie -3", ["Verte","Rouge","Doji"], key="b3_sf")
-        b2_m = c2.selectbox("Bougie -2", ["Verte","Rouge","Doji"], key="b2_sf")
-        b1_m = c3.selectbox("Bougie -1", ["Verte","Rouge","Doji"], key="b1_sf")
-        rsi_m = st.number_input("RSI sur ma capture", value=50.0, min_value=0.0, max_value=100.0, key="rsi_sf")
-        if st.button("🔎 ANALYSER - SANS FILTRE - SANS CLÉ", type="primary", use_container_width=True):
+        b3_m = c1.selectbox("Bougie -3", ["Verte","Rouge","Doji"], key="b3_doux")
+        b2_m = c2.selectbox("Bougie -2", ["Verte","Rouge","Doji"], key="b2_doux")
+        b1_m = c3.selectbox("Bougie -1", ["Verte","Rouge","Doji"], key="b1_doux")
+        rsi_m = st.number_input("RSI sur ma capture", value=50.0, min_value=0.0, max_value=100.0, key="rsi_doux")
+        if st.button("🔎 ANALYSER - FILTRE DOUX - SANS CLÉ", type="primary", use_container_width=True):
             nb_v = [b3_m, b2_m, b1_m].count("Verte")
             nb_r = [b3_m, b2_m, b1_m].count("Rouge")
-            # SANS FILTRE : on choisit toujours, même si Doji
-            if nb_v >= nb_r and rsi_m >= 50:
-                st.success(f"🟢 CALL {paire} pour {expiration} mn - SANS FILTRE : {nb_v} Verte(s) vs {nb_r} Rouge(s)")
-            elif nb_r > nb_v and rsi_m < 50:
-                st.error(f"🔴 PUT {paire} pour {expiration} mn - SANS FILTRE : {nb_r} Rouge(s) vs {nb_v} Verte(s)")
-            elif nb_v > nb_r:
-                st.success(f"🟢 CALL {paire} pour {expiration} mn - SANS FILTRE : Plus de vertes")
-            elif nb_r > nb_v:
-                st.error(f"🔴 PUT {paire} pour {expiration} mn - SANS FILTRE : Plus de rouges")
+            nb_d = [b3_m, b2_m, b1_m].count("Doji")
+            if nb_d >= 3:
+                st.warning("🟡 ATTENDRE - 3 Doji, filtre doux bloque quand même")
+            elif nb_v == 3 and rsi_m > 50:
+                st.success(f"🟢 CALL {paire} - 3 Soldats Blancs")
+            elif nb_r == 3 and rsi_m < 50:
+                st.error(f"🔴 PUT {paire} - 3 Corbeaux Noirs")
+            elif nb_v >= 2 and b1_m == "Verte":
+                st.success(f"🟢 CALL {paire} - Filtre doux : 2 vertes + dernière verte")
+            elif nb_r >= 2 and b1_m == "Rouge":
+                st.error(f"🔴 PUT {paire} - Filtre doux : 2 rouges + dernière rouge")
             else:
-                # Même si égal, on prend la dernière bougie - SANS FILTRE
-                if b1_m == "Verte":
-                    st.success(f"🟢 CALL {paire} - SANS FILTRE : Égalité, dernière bougie verte")
-                elif b1_m == "Rouge":
-                    st.error(f"🔴 PUT {paire} - SANS FILTRE : Égalité, dernière bougie rouge")
-                else:
-                    if rsi_m >= 50:
-                        st.success(f"🟢 CALL {paire} - SANS FILTRE : Égalité + Doji, RSI >= 50")
-                    else:
-                        st.error(f"🔴 PUT {paire} - SANS FILTRE : Égalité + Doji, RSI < 50")
+                st.warning(f"🟡 ATTENDRE {paire} - Pas assez clair même avec filtre doux")
 
-st.caption("V2 PRO + SCALPING + 3 BOUGIES - SANS FILTRE ANTI-FAUX SIGNAUX | Plus de signaux, plus de risque.")
+st.caption("V2 PRO + SCALPING + 3 BOUGIES + FILTRE DOUX | Change les réglages en haut du code pour plus ou moins de signaux.")
