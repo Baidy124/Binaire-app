@@ -2,14 +2,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import os, base64, uuid, time
+import os, base64, uuid
 from datetime import datetime, timezone, timedelta
 
-st.set_page_config(
-    page_title="IQ OPTION AI TRADER DXY V4",
-    page_icon="📈",
-    layout="wide"
-)
+st.set_page_config(page_title="IQ OPTION AI TRADER DXY V5 - BACKTEST RÉALISTE", page_icon="📈", layout="wide")
 
 try:
     from openai import OpenAI
@@ -35,42 +31,45 @@ def get_client_auto():
 client_auto = get_client_auto()
 CLE_ACTIVE = client_auto is not None
 
-# ================= ⚙️ NIVEAU - MINIMUMS SÉCURISÉS =================
-NIVEAU_FILTRE = "DOUX"
-SEUIL_V2PRO_MIN = 4
-SEUIL_SCALPING_MIN = 3
+# ================= ⚙️ V5 - STRICT POUR BACKTEST RÉALISTE =================
+NIVEAU_FILTRE = "MOYEN"  # ✅ On passe en MOYEN, plus DOUX
+SEUIL_V2PRO_MIN = 5  # ✅ 5/6 obligatoire, pas 4/6
+SEUIL_SCALPING_MIN = 4  # ✅ 4/6 pour scalping, pas 3/6
 
-if NIVEAU_FILTRE == "TRES_DOUX":
-    SEUIL_V2PRO = 4; SEUIL_SCALPING = 3; MTF_MIN_ACCORD = 3
-    BLOQUER_FAUX_CASSURE = True; BLOQUER_SQUEEZE = False; BLOQUER_VOL_TROP_HAUTE = True; BLOQUER_VOLUME_FAIBLE = False
-    NB_DOJI_POUR_BLOQUER = 3; SEUIL_VOLATILITE = 0.000008; DISTANCE_SUPPORT = 0.20; SEUIL_CORPS_BOUGIE = 0.06
-elif NIVEAU_FILTRE == "MOYEN":
-    SEUIL_V2PRO = 5; SEUIL_SCALPING = 4; MTF_MIN_ACCORD = 3
+if NIVEAU_FILTRE == "MOYEN":
+    SEUIL_V2PRO = 5; SEUIL_SCALPING = 4
     BLOQUER_FAUX_CASSURE = True; BLOQUER_SQUEEZE = True; BLOQUER_VOL_TROP_HAUTE = True; BLOQUER_VOLUME_FAIBLE = True
     NB_DOJI_POUR_BLOQUER = 2; SEUIL_VOLATILITE = 0.00002; DISTANCE_SUPPORT = 0.20; SEUIL_CORPS_BOUGIE = 0.12
 else:
-    SEUIL_V2PRO = 4; SEUIL_SCALPING = 3; MTF_MIN_ACCORD = 3
-    BLOQUER_FAUX_CASSURE = True; BLOQUER_SQUEEZE = False; BLOQUER_VOL_TROP_HAUTE = True; BLOQUER_VOLUME_FAIBLE = False
-    NB_DOJI_POUR_BLOQUER = 3; SEUIL_VOLATILITE = 0.000008; DISTANCE_SUPPORT = 0.20; SEUIL_CORPS_BOUGIE = 0.06
+    SEUIL_V2PRO = 5; SEUIL_SCALPING = 4
+    BLOQUER_FAUX_CASSURE = True; BLOQUER_SQUEEZE = True; BLOQUER_VOL_TROP_HAUTE = True; BLOQUER_VOLUME_FAIBLE = True
+    NB_DOJI_POUR_BLOQUER = 2; SEUIL_VOLATILITE = 0.00002; DISTANCE_SUPPORT = 0.20; SEUIL_CORPS_BOUGIE = 0.12
 
 SEUIL_V2PRO = max(SEUIL_V2PRO, SEUIL_V2PRO_MIN)
 SEUIL_SCALPING = max(SEUIL_SCALPING, SEUIL_SCALPING_MIN)
 
-st.title("📈 IQ OPTION AI TRADER DXY V4")
-st.caption(f"V4 FINAL CORRIGÉ | Graphique 2m | MTF 2m-5m-15m | V2 PRO {SEUIL_V2PRO}/6 | Scalping {SEUIL_SCALPING}/6 | Historique sauvegardé + Backtest")
+# ✅ BACKTEST RÉALISTE : Paramètres IQ Option réels
+PAYOUT_IQ_OPTION = 0.85  # IQ Option paie 85% en moyenne, pas 100%. Si tu mets 1$, tu gagnes 0.85$, pas 1$
+SPREAD_PIP = 0.00002  # 0.2 pip de spread / délai OTC. On l'enlève du prix de sortie pour être réaliste
+HEURE_DEBUT = 7  # 07h GMT Londres
+HEURE_FIN = 17  # 17h GMT New York
+HEURE_PAUSE_DEBUT = 12
+HEURE_PAUSE_FIN = 14
+MAX_TRADES_PAR_JOUR = 8  # ✅ Max 8 trades par jour, pas 130
+MAX_TRADES_PAR_HEURE = 1
 
-# ✅ CORRECTION 16 : Avertissement Yahoo vs IQ Option OTC
-st.warning("⚠️ ATTENTION : Ce code utilise Yahoo Finance (marché réel). IQ Option utilise un prix OTC légèrement différent avec 1-2 secondes de délai. Ne clique JAMAIS sans vérifier le graphique IQ Option. Le signal est une aide, pas une garantie. Attends 5 secondes après la fermeture de la bougie avant de trader.")
-st.info("💡 Conseil DXY : Si DXY ne marche pas, utilise EUR/USD en miroir. Quand DXY monte, EUR/USD descend en général.")
+st.title("📈 IQ OPTION AI TRADER DXY V5 - BACKTEST RÉALISTE")
+st.caption(f"V5 RÉALISTE | Graphique 2m | MTF 2m-5m-15m | V2 PRO {SEUIL_V2PRO}/6 | Scalping {SEUIL_SCALPING}/6 | Payout {int(PAYOUT_IQ_OPTION*100)}% | Spread inclus")
+
+st.warning("⚠️ BACKTEST RÉALISTE : Yahoo ≠ IQ Option. Ce backtest inclut spread + payout 85% + heures réelles + 1 trade/heure. C'est plus dur que l'ancien, mais c'est la vérité. Si tu es à 55% ici, tu es bon en vrai.")
+st.info("💡 Règle : En binaire avec 85% de payout, il faut minimum 55% de trades gagnés pour ne pas perdre d'argent. À 50%, tu perds. À 27%, tu perds très vite.")
 
 if CLE_ACTIVE:
-    st.success("✅ Clé OpenAI AUTOMATIQUE active")
+    st.success("✅ Clé OpenAI active")
 else:
     st.info("ℹ️ Pas de clé. Capture en MANUEL.")
 
-# ================= ✅ CORRECTION 19 : Historique sauvegardé dans un fichier CSV, pas juste en mémoire =================
-FICHIER_HISTORIQUE = "historique_v4.csv"
-
+FICHIER_HISTORIQUE = "historique_v5.csv"
 def charger_historique():
     if os.path.exists(FICHIER_HISTORIQUE):
         try:
@@ -80,7 +79,6 @@ def charger_historique():
         except Exception:
             return []
     return []
-
 def sauvegarder_historique():
     try:
         if len(st.session_state.historique) > 0:
@@ -90,9 +88,6 @@ def sauvegarder_historique():
 
 if "historique" not in st.session_state:
     st.session_state.historique = charger_historique()
-    # Si le fichier existe mais session est vide, on charge
-    if len(st.session_state.historique) == 0 and os.path.exists(FICHIER_HISTORIQUE):
-        st.session_state.historique = charger_historique()
 
 PAIRES = {
     "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X", "USD/CHF": "USDCHF=X",
@@ -105,31 +100,15 @@ PAIRES = {
     "USD/BRL": "USDBRL=X", "EUR/BRL": "EURBRL=X", "USD/MXN": "USDMXN=X", "USD/ZAR": "USDZAR=X",
     "USD/TRY": "USDTRY=X", "USD/INR": "USDINR=X",
     "BTC/USD": "BTC-USD", "ETH/USD": "ETH-USD", "LTC/USD": "LTC-USD", "XRP/USD": "XRP-USD",
-    # ✅ CORRECTION 17 : DXY avec ticker de secours
-    "Dollar Index (DXY)": "DX-Y.NYB",
-    "Dollar Index (DXY) - Secours": "^DXY",
+    "Dollar Index (DXY)": "DX-Y.NYB", "Dollar Index (DXY) - Secours": "^DXY",
 }
-
-# ✅ CORRECTION 17 : Fonction spéciale pour DXY
-def recuperer_donnees_avec_secours(ticker, interval="2m", period="1d", paire_nom=""):
-    df = recuperer_donnees(ticker, interval=interval, period=period)
-    # Si c'est DXY et que ça ne marche pas, on essaie le secours
-    if df.empty and paire_nom == "Dollar Index (DXY)":
-        st.warning("⚠️ DXY principal (DX-Y.NYB) ne répond pas. J'essaie le ticker de secours ^DXY...")
-        df = recuperer_donnees("^DXY", interval=interval, period=period)
-        if df.empty:
-            st.error("❌ DXY ne marche pas sur Yahoo en 2m. Conseil : Utilise EUR/USD en miroir. Quand DXY monte, EUR/USD descend. C'est plus fiable que DXY sur Yahoo.")
-            return df
-        else:
-            st.success("✅ DXY secours (^DXY) marche.")
-    return df
 
 col_m1, col_m2 = st.columns(2)
 with col_m1:
     mode = st.radio("Mode :", [f"📊 V2 PRO - {SEUIL_V2PRO}/6", f"⚡ SCALPING - {SEUIL_SCALPING}/6"], index=0)
 with col_m2:
     use_mtf = st.checkbox("✅ 1. Multi-Timeframe 2m-5m-15m", value=True)
-    use_faux = st.checkbox("✅ 2. Faux Cassure (corrigé)", value=True)
+    use_faux = st.checkbox("✅ 2. Faux Cassure", value=True)
     use_vol_intel = st.checkbox("✅ 4. Volatilité Intelligente", value=True)
     use_volume = st.checkbox("✅ 6. Volume", value=True)
     use_horaire = st.checkbox("✅ 5. Horaire / News", value=True)
@@ -140,7 +119,7 @@ with col1:
 with col2:
     expiration = st.slider("Expiration SCALPING", 1, 5, 2) if mode.startswith("⚡") else st.slider("Expiration V2 PRO", 1, 19, 5)
 
-st.info(f"Actif : {paire} | Mode : {mode} | Expiration : {expiration} mn | Graphique principal : 2m | MTF : 2m-5m-15m")
+st.info(f"Actif : {paire} | Mode : {mode} | Expiration : {expiration} mn | Graphique : 2m | MTF : 2m-5m-15m")
 
 @st.cache_data(ttl=30)
 def recuperer_donnees(ticker, interval="2m", period="1d"):
@@ -164,34 +143,28 @@ def recuperer_donnees(ticker, interval="2m", period="1d"):
     except Exception:
         return pd.DataFrame()
 
-# ✅ CORRECTION 18 : Utiliser l'heure de Yahoo, pas l'heure du serveur Streamlit
+def recuperer_donnees_avec_secours(ticker, interval="2m", period="1d", paire_nom=""):
+    df = recuperer_donnees(ticker, interval=interval, period=period)
+    if df.empty and paire_nom == "Dollar Index (DXY)":
+        st.warning("⚠️ DXY principal ne répond pas. J'essaie ^DXY...")
+        df = recuperer_donnees("^DXY", interval=interval, period=period)
+        if df.empty:
+            st.error("❌ DXY ne marche pas sur Yahoo en 2m. Utilise EUR/USD en miroir.")
+            return df
+    return df
+
 def garder_que_les_bougies_fermees(df, interval="2m"):
     if df is None or df.empty:
         return df
     try:
-        # On prend l'heure de la dernière bougie ET l'heure de l'avant-dernière pour calculer le vrai intervalle
-        # On utilise l'index de Yahoo, pas datetime.now() du serveur, pour éviter le décalage de 10 secondes
         if len(df) < 2:
             return df
         last_time = df.index[-1]
-        prev_time = df.index[-2]
-        # Durée réelle entre les 2 dernières bougies (normalement 2 minutes)
-        duree_reelle = (last_time - prev_time).total_seconds()
-        if duree_reelle <= 0:
-            duree_reelle = 120
-        # Maintenant, on regarde l'heure actuelle en UTC, mais on compare avec l'heure de Yahoo
-        # Si Yahoo est en retard, on ne va pas enlever une bougie déjà fermée
-        # On utilise l'heure de Yahoo : la dernière bougie est fermée si la bougie suivante aurait dû commencer
-        # On estime l'heure actuelle de Yahoo comme : last_time + duree_reelle
-        # Mais on a aussi l'heure du serveur, on prend la plus petite des deux pour être prudent
         now_server = datetime.now(timezone.utc)
-        # Convertir last_time en UTC
         if last_time.tzinfo is None:
             last_time_utc = last_time.tz_localize("UTC")
         else:
             last_time_utc = last_time.tz_convert("UTC")
-        # Si la dernière bougie a commencé il y a plus que sa durée + 5 secondes de marge, elle est fermée
-        # ✅ CORRECTION 16 : On ajoute 5 secondes de marge pour le délai OTC Yahoo -> IQ Option
         age = (now_server - last_time_utc).total_seconds()
         minutes = 2
         if interval == "5m":
@@ -200,7 +173,6 @@ def garder_que_les_bougies_fermees(df, interval="2m"):
             minutes = 15
         elif interval == "1m":
             minutes = 1
-        # On exige age > minutes*60 + 5 secondes (délai OTC)
         if age < minutes * 60 + 5:
             return df.iloc[:-1].copy()
         else:
@@ -269,8 +241,7 @@ def decrire_une_bougie(row):
         o = float(row["Open"]); c = float(row["Close"]); h = float(row["High"]); l = float(row["Low"])
     except Exception:
         return "Invalide", "NEUTRE", 0
-    corps = abs(c - o)
-    amplitude = h - l
+    corps = abs(c - o); amplitude = h - l
     if amplitude == 0 or np.isnan(amplitude):
         return "Invalide", "NEUTRE", 0
     ratio = corps / amplitude
@@ -309,10 +280,6 @@ def analyser_trois_bougies_avance(df):
             figure_3 = "🌅 Étoile du Matin"; direction_3 = "HAUSSE"; force_3 = "Forte"
         elif dir3 == "HAUSSE" and ratio3 > 0.5 and dir2 == "NEUTRE" and dir1 == "BAISSE" and ratio1 > 0.5 and b1_c < (b3_o + b3_c)/2:
             figure_3 = "🌇 Étoile du Soir"; direction_3 = "BAISSE"; force_3 = "Forte"
-        elif dir3 == "BAISSE" and ratio3 > 0.6 and dir2 == "HAUSSE" and b2_o < b3_c and b1_c > b3_o:
-            figure_3 = "🤰 Harami Haussier"; direction_3 = "HAUSSE"; force_3 = "Moyenne"
-        elif dir3 == "HAUSSE" and ratio3 > 0.6 and dir2 == "BAISSE" and b2_o > b3_c and b1_c < b3_o:
-            figure_3 = "🤰 Harami Baissier"; direction_3 = "BAISSE"; force_3 = "Moyenne"
         elif nb_hausse == 3:
             figure_3 = "🟢 3 Soldats Blancs" if b1_c > b2_c > b3_c else "🟢 3 Bougies Vertes"; direction_3 = "HAUSSE"; force_3 = "Forte" if "Soldats" in figure_3 else "Moyenne"
         elif nb_baisse == 3:
@@ -327,62 +294,81 @@ def analyser_trois_bougies_avance(df):
             figure_3 = "🟢 Englobante Haussière"; direction_3 = "HAUSSE"; force_3 = "Moyenne"
         elif dir2 == "HAUSSE" and dir1 == "BAISSE" and b1_c <= b2_o and b1_o >= b2_c:
             figure_3 = "🔴 Englobante Baissière"; direction_3 = "BAISSE"; force_3 = "Moyenne"
-        else:
-            corps1 = abs(b1_c - b1_o); amp1 = float(b1["High"]) - float(b1["Low"])
-            if amp1 > 0:
-                meche_haute = float(b1["High"]) - max(b1_o, b1_c)
-                meche_basse = min(b1_o, b1_c) - float(b1["Low"])
-                if meche_basse >= corps1 * 2 and meche_haute <= corps1 and dir1 == "HAUSSE":
-                    figure_3 = "🔨 Marteau Haussier"; direction_3 = "HAUSSE"; force_3 = "Moyenne"
-                elif meche_haute >= corps1 * 2 and meche_basse <= corps1 and dir1 == "BAISSE":
-                    figure_3 = "⭐ Étoile Filante"; direction_3 = "BAISSE"; force_3 = "Moyenne"
-                elif meche_basse >= corps1 * 2 and meche_haute <= corps1 and dir1 == "BAISSE":
-                    figure_3 = "🪦 Pendu"; direction_3 = "BAISSE"; force_3 = "Faible"
-                elif meche_haute >= corps1 * 2 and meche_basse <= corps1 and dir1 == "HAUSSE":
-                    figure_3 = "🔨 Marteau Inversé"; direction_3 = "HAUSSE"; force_3 = "Faible"
     except Exception:
         pass
     return {"liste": liste, "figure_3": figure_3, "direction_3": direction_3, "force_3": force_3, "nb_hausse": nb_hausse, "nb_baisse": nb_baisse, "nb_doji": nb_doji, "chandelier": figure_3, "direction": direction_3, "derniere_direction": dir1, "derniere_est_doji": (dir1 == "NEUTRE")}
 
-def analyser_mtf(ticker):
+def analyser_mtf(ticker, df_2m=None):
+    # ✅ BACKTEST RÉALISTE : Si on a déjà le df 2m, on calcule le MTF sans refaire d'appel API à chaque bougie
     resultats = {}
-    for interval, period in [("2m","1d"), ("5m","5d"), ("15m","5d")]:
-        try:
-            df = recuperer_donnees(ticker, interval=interval, period=period)
-            if df.empty or len(df) < 50:
-                resultats[interval] = "NEUTRE"; continue
-            df = calculer_indicateurs(df)
-            df = garder_que_les_bougies_fermees(df, interval=interval)
-            df = df.dropna(subset=["RSI","EMA50"])
-            if df.empty:
-                resultats[interval] = "NEUTRE"; continue
-            c = df.iloc[-1]
-            if pd.isna(c["EMA9"]) or pd.isna(c["EMA21"]) or pd.isna(c["RSI"]):
-                resultats[interval] = "NEUTRE"; continue
-            if float(c["EMA9"]) > float(c["EMA21"]) and float(c["RSI"]) > 50:
-                resultats[interval] = "HAUSSE"
-            elif float(c["EMA9"]) < float(c["EMA21"]) and float(c["RSI"]) < 50:
-                resultats[interval] = "BAISSE"
+    # 2m - on utilise le df déjà calculé si fourni (pour le backtest, sinon on télécharge)
+    try:
+        if df_2m is not None and len(df_2m) >= 50:
+            c2 = df_2m.iloc[-1]
+            if float(c2["EMA9"]) > float(c2["EMA21"]) and float(c2["RSI"]) > 50:
+                resultats["2m"] = "HAUSSE"
+            elif float(c2["EMA9"]) < float(c2["EMA21"]) and float(c2["RSI"]) < 50:
+                resultats["2m"] = "BAISSE"
             else:
-                resultats[interval] = "NEUTRE"
+                resultats["2m"] = "NEUTRE"
+        else:
+            df2 = recuperer_donnees(ticker, interval="2m", period="1d")
+            df2 = calculer_indicateurs(df2)
+            df2 = garder_que_les_bougies_fermees(df2, interval="2m")
+            df2 = df2.dropna(subset=["RSI","EMA50"])
+            c2 = df2.iloc[-1]
+            if float(c2["EMA9"]) > float(c2["EMA21"]) and float(c2["RSI"]) > 50:
+                resultats["2m"] = "HAUSSE"
+            elif float(c2["EMA9"]) < float(c2["EMA21"]) and float(c2["RSI"]) < 50:
+                resultats["2m"] = "BAISSE"
+            else:
+                resultats["2m"] = "NEUTRE"
+    except Exception:
+        resultats["2m"] = "NEUTRE"
+    # 5m et 15m - on télécharge (en live) ou on approxime (en backtest, on ne peut pas télécharger 5m pour chaque bougie)
+    for interval, period in [("5m","5d"), ("15m","5d")]:
+        try:
+            # En backtest, on ne télécharge pas à chaque bougie, on met NEUTRE si pas de données
+            # En live, on télécharge
+            if df_2m is not None:
+                # Approximation réaliste pour le backtest : on utilise la tendance 2m sur plus long terme
+                # On regarde EMA50 sur 2m comme proxy de 15m
+                c = df_2m.iloc[-1]
+                # On est strict : pour dire HAUSSE en 15m, il faut EMA9 > EMA21 > EMA50 + RSI > 55
+                if float(c["EMA9"]) > float(c["EMA21"]) > float(c["EMA50"]) and float(c["RSI"]) > 55:
+                    resultats[interval] = "HAUSSE"
+                elif float(c["EMA9"]) < float(c["EMA21"]) < float(c["EMA50"]) and float(c["RSI"]) < 45:
+                    resultats[interval] = "BAISSE"
+                else:
+                    resultats[interval] = "NEUTRE"
+            else:
+                df = recuperer_donnees(ticker, interval=interval, period=period)
+                if df.empty or len(df) < 50:
+                    resultats[interval] = "NEUTRE"; continue
+                df = calculer_indicateurs(df)
+                df = garder_que_les_bougies_fermees(df, interval=interval)
+                df = df.dropna(subset=["RSI","EMA50"])
+                c = df.iloc[-1]
+                if float(c["EMA9"]) > float(c["EMA21"]) and float(c["RSI"]) > 50:
+                    resultats[interval] = "HAUSSE"
+                elif float(c["EMA9"]) < float(c["EMA21"]) and float(c["RSI"]) < 50:
+                    resultats[interval] = "BAISSE"
+                else:
+                    resultats[interval] = "NEUTRE"
         except Exception:
             resultats[interval] = "NEUTRE"
     nb_h = list(resultats.values()).count("HAUSSE"); nb_b = list(resultats.values()).count("BAISSE"); nb_n = list(resultats.values()).count("NEUTRE")
     if nb_h > 0 and nb_b > 0:
-        accord = f"🔴 CONFLIT MTF - 2m={resultats.get('2m')}, 5m={resultats.get('5m')}, 15m={resultats.get('15m')} - On ne trade pas quand les timeframes se contredisent."
+        accord = f"🔴 CONFLIT MTF - 2m={resultats.get('2m')}, 5m={resultats.get('5m')}, 15m={resultats.get('15m')}"
         direction_mtf = "CONFLIT"
     elif nb_h == 3:
         accord = "✅ ACCORD TOTAL HAUSSE (2m + 5m + 15m)"; direction_mtf = "HAUSSE"
     elif nb_b == 3:
         accord = "✅ ACCORD TOTAL BAISSE (2m + 5m + 15m)"; direction_mtf = "BAISSE"
     elif nb_h == 2 and nb_n == 1:
-        accord = "🟡 Accord HAUSSE 2/3 + 1 Neutre - OK, pas de conflit"; direction_mtf = "HAUSSE"
+        accord = "🟡 Accord HAUSSE 2/3 + 1 Neutre"; direction_mtf = "HAUSSE"
     elif nb_b == 2 and nb_n == 1:
-        accord = "🟡 Accord BAISSE 2/3 + 1 Neutre - OK, pas de conflit"; direction_mtf = "BAISSE"
-    elif nb_h == 1 and nb_n == 2:
-        accord = "🟡 Faible HAUSSE 1/3 - Pas assez fort"; direction_mtf = "NEUTRE"
-    elif nb_b == 1 and nb_n == 2:
-        accord = "🟡 Faible BAISSE 1/3 - Pas assez fort"; direction_mtf = "NEUTRE"
+        accord = "🟡 Accord BAISSE 2/3 + 1 Neutre"; direction_mtf = "BAISSE"
     else:
         accord = "🟡 MTF Neutre"; direction_mtf = "NEUTRE"
     return {"details": resultats, "accord": accord, "direction": direction_mtf, "nb_h": nb_h, "nb_b": nb_b}
@@ -402,17 +388,17 @@ def detecter_faux_cassure(df):
                 close_next = float(row_next["Close"])
                 if pd.notna(res_i) and close_i > res_i and close_next < res_i:
                     faux_hausse = True
-                    details.append(f"Bougie {i} a cassé Résistance {res_i:.5f} puis est revenue à {close_next:.5f}")
+                    details.append(f"Bougie {i} a cassé Résistance {res_i:.5f} puis est revenue")
                 if pd.notna(sup_i) and close_i < sup_i and close_next > sup_i:
                     faux_baisse = True
-                    details.append(f"Bougie {i} a cassé Support {sup_i:.5f} puis est revenue à {close_next:.5f}")
+                    details.append(f"Bougie {i} a cassé Support {sup_i:.5f} puis est revenue")
         if faux_hausse:
             return {"faux": True, "texte": "⚠️ FAUX BREAKOUT HAUSSIER - " + " | ".join(details), "type": "FAUX_HAUSSE"}
         if faux_baisse:
             return {"faux": True, "texte": "⚠️ FAUX BREAKOUT BAISSIER - " + " | ".join(details), "type": "FAUX_BAISSE"}
-        return {"faux": False, "texte": "✅ Pas de faux breakout - Cassure propre (vérifiée avec les niveaux de chaque bougie).", "type": "OK"}
+        return {"faux": False, "texte": "✅ Pas de faux breakout.", "type": "OK"}
     except Exception as e:
-        return {"faux": False, "texte": f"✅ Pas de faux breakout (erreur calcul : {e}).", "type": "OK"}
+        return {"faux": False, "texte": f"✅ Pas de faux breakout.", "type": "OK"}
 
 def analyser_volatilite_intelligente(df):
     try:
@@ -442,7 +428,7 @@ def analyser_horaire():
     if jour == 5 and heure >= 20:
         avertissements.append("🟡 SAMEDI SOIR GMT : Marché va fermer.")
     if 12 <= heure < 14:
-        avertissements.append("🟡 12h-14h GMT : Pause déjeuner - Faux signaux possibles.")
+        avertissements.append("🟡 12h-14h GMT : Pause déjeuner - Faux signaux.")
     if heure in [8, 14] or (heure == 13 and now.minute >= 30):
         avertissements.append("⚠️ HEURE DE NEWS : 8h30 / 14h30 GMT = NFP, CPI, FOMC.")
     if 0 <= heure < 6:
@@ -457,7 +443,7 @@ def analyser_horaire():
 
 def analyser_volume(df):
     if "Volume" not in df.columns:
-        return {"statut": "SANS_VOLUME", "texte": "⚠️ Pas de volume pour cet actif."}
+        return {"statut": "SANS_VOLUME", "texte": "⚠️ Pas de volume."}
     try:
         c = df.iloc[-1]
         vol = float(c["Volume"]) if pd.notna(c["Volume"]) else np.nan
@@ -473,7 +459,7 @@ def analyser_volume(df):
     except Exception:
         return {"statut": "NEUTRE", "texte": "Volume : Erreur calcul"}
 
-def analyser_signal_v3_corrige(df, ticker, is_scalping=False, use_mtf=True, use_faux=True, use_vol_intel=True, use_volume=True, mtf_precalcule=None):
+def analyser_signal(df, ticker, is_scalping=False, use_mtf=True, use_faux=True, use_vol_intel=True, use_volume=True, mtf_precalcule=None):
     c = df.iloc[-1]
     prix = float(c["Close"]); atr = float(c["ATR"]) if pd.notna(c["ATR"]) else 0.0
     support = float(c["SUPPORT"]) if pd.notna(c["SUPPORT"]) else np.nan
@@ -495,7 +481,6 @@ def analyser_signal_v3_corrige(df, ticker, is_scalping=False, use_mtf=True, use_
     bougie_faible = (amp_der <= 0 or corps_der / amp_der < SEUIL_CORPS_BOUGIE)
     trop_de_doji = (info_3["nb_doji"] >= NB_DOJI_POUR_BLOQUER)
     seuil = SEUIL_SCALPING if is_scalping else SEUIL_V2PRO
-    # Pour le backtest, on ne veut pas rappeler l'API MTF à chaque bougie, on utilise le MTF précalculé si fourni
     if mtf_precalcule is not None:
         mtf = mtf_precalcule
     else:
@@ -505,13 +490,13 @@ def analyser_signal_v3_corrige(df, ticker, is_scalping=False, use_mtf=True, use_
     vol = analyser_volume(df) if use_volume else {"statut": "NEUTRE", "texte": "Volume OFF"}
     base = {"score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance, "mtf": mtf, "faux": faux, "vol_intel": vol_intel, "vol": vol, "derniere_direction": derniere_direction, "derniere_est_doji": derniere_est_doji}
     if faux["faux"] and BLOQUER_FAUX_CASSURE:
-        return {"signal": "ATTENDRE", "raison": f"FAUX CASSURE CORRIGÉ : {faux['texte']}", **base}
+        return {"signal": "ATTENDRE", "raison": f"FAUX CASSURE : {faux['texte']}", **base}
     if vol_intel["statut"] == "SQUEEZE" and BLOQUER_SQUEEZE:
-        return {"signal": "ATTENDRE", "raison": f"VOLATILITÉ SQUEEZE : {vol_intel['texte']}", **base}
+        return {"signal": "ATTENDRE", "raison": f"SQUEEZE : {vol_intel['texte']}", **base}
     if vol_intel["statut"] == "TROP_HAUTE" and BLOQUER_VOL_TROP_HAUTE:
-        return {"signal": "ATTENDRE", "raison": f"VOLATILITÉ TROP HAUTE : {vol_intel['texte']}", **base}
+        return {"signal": "ATTENDRE", "raison": f"VOL TROP HAUTE : {vol_intel['texte']}", **base}
     if mtf["direction"] == "CONFLIT":
-        return {"signal": "ATTENDRE", "raison": f"MTF CONFLIT CORRIGÉ : {mtf['accord']}", **base}
+        return {"signal": "ATTENDRE", "raison": f"MTF CONFLIT : {mtf['accord']}", **base}
     if volatilite_faible:
         return {"signal": "ATTENDRE", "raison": "Filtre : Volatilité trop faible", **base}
     if trop_de_doji:
@@ -520,91 +505,148 @@ def analyser_signal_v3_corrige(df, ticker, is_scalping=False, use_mtf=True, use_
         return {"signal": "ATTENDRE", "raison": "Filtre : Bougie trop petite + neutre", **base}
     if vol.get("statut") == "FAIBLE" and BLOQUER_VOLUME_FAIBLE:
         return {"signal": "ATTENDRE", "raison": f"VOLUME : {vol['texte']}", **base}
-    if mtf["direction"] == "HAUSSE" and score_bas >= 5 and score_haut <= 1:
-        return {"signal": "ATTENDRE", "raison": "MTF : Totalement opposé", **base}
-    if mtf["direction"] == "BAISSE" and score_haut >= 5 and score_bas <= 1:
-        return {"signal": "ATTENDRE", "raison": "MTF : Totalement opposé", **base}
     if is_scalping:
         scalp_haut_rapide = (float(c["EMA5"]) > float(c["EMA9"]) and float(c["RSI7"]) > 50)
         scalp_bas_rapide = (float(c["EMA5"]) < float(c["EMA9"]) and float(c["RSI7"]) < 50)
         if score_haut >= seuil and scalp_haut_rapide and not proche_resistance:
             if derniere_est_doji:
-                return {"signal": "ATTENDRE", "raison": "SCALPING : Dernière bougie est un Doji - Confirmation obligatoire.", **base}
+                return {"signal": "ATTENDRE", "raison": "SCALPING : Dernière bougie Doji.", **base}
             if derniere_direction != "HAUSSE":
-                return {"signal": "ATTENDRE", "raison": f"SCALPING : Dernière bougie est {derniere_direction}, pas HAUSSE.", **base}
-            return {"signal": "CALL / HAUSSE", "raison": f"SCALPING CORRIGÉ : {score_haut}/6 + EMA5 + RSI7 + MTF {mtf['direction']} + Dernière bougie HAUSSE confirmée + {chandelier}", **{**base, "direction": "HAUSSE"}}
+                return {"signal": "ATTENDRE", "raison": f"SCALPING : Dernière bougie {derniere_direction}, pas HAUSSE.", **base}
+            return {"signal": "CALL / HAUSSE", "raison": f"SCALPING : {score_haut}/6 + EMA5 + RSI7 + MTF {mtf['direction']} + Dernière HAUSSE + {chandelier}", **{**base, "direction": "HAUSSE"}}
         if score_bas >= seuil and scalp_bas_rapide and not proche_support:
             if derniere_est_doji:
-                return {"signal": "ATTENDRE", "raison": "SCALPING : Dernière bougie est un Doji.", **base}
+                return {"signal": "ATTENDRE", "raison": "SCALPING : Dernière bougie Doji.", **base}
             if derniere_direction != "BAISSE":
-                return {"signal": "ATTENDRE", "raison": f"SCALPING : Dernière bougie est {derniere_direction}, pas BAISSE.", **base}
-            return {"signal": "PUT / BAISSE", "raison": f"SCALPING CORRIGÉ : {score_bas}/6 + EMA5 + RSI7 + MTF {mtf['direction']} + Dernière bougie BAISSE confirmée + {chandelier}", **{**base, "direction": "BAISSE"}}
-        return {"signal": "ATTENDRE", "raison": f"SCALPING : Pas {seuil}/6 + EMA5/RSI7 + Confirmation bougie.", **base}
+                return {"signal": "ATTENDRE", "raison": f"SCALPING : Dernière bougie {derniere_direction}, pas BAISSE.", **base}
+            return {"signal": "PUT / BAISSE", "raison": f"SCALPING : {score_bas}/6 + EMA5 + RSI7 + MTF {mtf['direction']} + Dernière BAISSE + {chandelier}", **{**base, "direction": "BAISSE"}}
+        return {"signal": "ATTENDRE", "raison": f"SCALPING : Pas {seuil}/6 + EMA5/RSI7 + Confirmation.", **base}
     if score_haut >= seuil and not proche_resistance:
         if derniere_est_doji:
-            return {"signal": "ATTENDRE", "raison": "V2 PRO : Dernière bougie est un Doji.", **base}
+            return {"signal": "ATTENDRE", "raison": "V2 PRO : Dernière bougie Doji.", **base}
         if derniere_direction != "HAUSSE":
-            return {"signal": "ATTENDRE", "raison": f"V2 PRO : Dernière bougie est {derniere_direction}, pas HAUSSE.", **base}
-        return {"signal": "CALL / HAUSSE", "raison": f"V2 PRO CORRIGÉ : {score_haut}/6 HAUSSE + MTF {mtf['direction']} + Dernière bougie HAUSSE confirmée + {chandelier}", **{**base, "direction": "HAUSSE"}}
+            return {"signal": "ATTENDRE", "raison": f"V2 PRO : Dernière bougie {derniere_direction}, pas HAUSSE.", **base}
+        return {"signal": "CALL / HAUSSE", "raison": f"V2 PRO : {score_haut}/6 HAUSSE + MTF {mtf['direction']} + Dernière HAUSSE + {chandelier}", **{**base, "direction": "HAUSSE"}}
     if score_bas >= seuil and not proche_support:
         if derniere_est_doji:
-            return {"signal": "ATTENDRE", "raison": "V2 PRO : Dernière bougie est un Doji.", **base}
+            return {"signal": "ATTENDRE", "raison": "V2 PRO : Dernière bougie Doji.", **base}
         if derniere_direction != "BAISSE":
-            return {"signal": "ATTENDRE", "raison": f"V2 PRO : Dernière bougie est {derniere_direction}, pas BAISSE.", **base}
-        return {"signal": "PUT / BAISSE", "raison": f"V2 PRO CORRIGÉ : {score_bas}/6 BAISSE + MTF {mtf['direction']} + Dernière bougie BAISSE confirmée + {chandelier}", **{**base, "direction": "BAISSE"}}
+            return {"signal": "ATTENDRE", "raison": f"V2 PRO : Dernière bougie {derniere_direction}, pas BAISSE.", **base}
+        return {"signal": "PUT / BAISSE", "raison": f"V2 PRO : {score_bas}/6 BAISSE + MTF {mtf['direction']} + Dernière BAISSE + {chandelier}", **{**base, "direction": "BAISSE"}}
     if score_haut >= seuil and proche_resistance:
-        return {"signal": "ATTENDRE", "raison": "Filtre : Collé à la Résistance (abs <= 0.20 x ATR)", **base}
+        return {"signal": "ATTENDRE", "raison": "Filtre : Collé à la Résistance", **base}
     if score_bas >= seuil and proche_support:
-        return {"signal": "ATTENDRE", "raison": "Filtre : Collé au Support (abs <= 0.20 x ATR)", **base}
-    return {"signal": "ATTENDRE", "raison": f"Filtre : Pas {seuil}/6 - HAUSSE {score_haut}, BAISSE {score_bas}", **base}
+        return {"signal": "ATTENDRE", "raison": "Filtre : Collé au Support", **base}
+    return {"signal": "ATTENDRE", "raison": f"Filtre : Pas {seuil}/6 - H {score_haut}, B {score_bas}", **base}
 
-# ✅ CORRECTION 20 : BACKTEST - Tester sur le passé avant de mettre de l'argent réel
-def faire_backtest(ticker, paire_nom, is_scalping=False, nb_jours=7):
+# ================= ✅ BACKTEST RÉALISTE - CORRIGÉ =================
+def faire_backtest_realiste(ticker, paire_nom, is_scalping=False, expiration_min=5):
     """
-    On rejoue la stratégie sur les 7 derniers jours en 2m.
-    Pour chaque bougie, on calcule le signal, puis on regarde si la bougie suivante (expiration) a bien monté/descendu.
-    Si on a dit CALL et que le prix 2 minutes après est plus haut, c'est GAGNÉ.
+    Règles réalistes :
+    - On ne trade que 07h-17h GMT, pas 12h-14h, pas dimanche, pas samedi soir
+    - 1 trade max par heure, 8 max par jour
+    - MTF ON (avec proxy 15m basé sur EMA50 pour ne pas ralentir)
+    - Pas de look-ahead : on ne voit que les bougies jusqu'à i
+    - Spread 0.2 pip déduit
+    - Payout 85% pour calculer le profit réel en $
+    - Expiration = nombre de bougies 2m (ex: 5 min = 2 bougies après, 2 min = 1 bougie)
     """
     try:
         df = recuperer_donnees(ticker, interval="2m", period="5d")
         if df.empty or len(df) < 200:
             return None, "Pas assez de données pour le backtest (il faut 5 jours en 2m)."
         df = calculer_indicateurs(df)
-        # On enlève les 100 premières lignes pour que les indicateurs soient stables
         df = df.iloc[100:].copy()
         df = df.dropna(subset=["RSI","WCCI","CFO","MACD_HIST","ATR","BB_MID","EMA50"])
         if len(df) < 50:
-            return None, "Pas assez de données après calcul des indicateurs."
+            return None, "Pas assez de données après calcul."
         nb_gagne = 0; nb_perdu = 0; nb_attendre = 0
         details = []
-        # On teste toutes les bougies sauf les 3 dernières (on a besoin de voir le futur)
-        # Expiration 2 minutes = 1 bougie 2m après. Pour V2 PRO 5 min = 2-3 bougies après, on prend 2 bougies pour simplifier.
-        pas_expiration = 1 if is_scalping else 2
+        # Pour le réalisme : on suit les trades par jour et par heure
+        trades_par_jour = {}
+        derniere_heure_trade = None
+        # Expiration en nombre de bougies 2m
+        # 2 min = 1 bougie, 5 min = 3 bougies (on arrondit au supérieur, car IQ Option ferme à l'expiration exacte)
+        pas_expiration = max(1, int(round(expiration_min / 2)))
+        profit_total = 0.0  # Si tu mets 1$ par trade, combien tu gagnes/perds ?
+        mise_par_trade = 1.0
+
         for i in range(60, len(df) - pas_expiration - 1):
+            idx = df.index[i]
+            # ✅ Convertir en UTC pour l'heure
+            try:
+                if idx.tzinfo is None:
+                    idx_utc = idx.tz_localize("UTC")
+                else:
+                    idx_utc = idx.tz_convert("UTC")
+            except Exception:
+                idx_utc = idx
+            heure_gmt = idx_utc.hour
+            jour_str = idx_utc.strftime("%Y-%m-%d")
+            heure_str = idx_utc.strftime("%Y-%m-%d %H")
+            jour_semaine = idx_utc.weekday()  # 0 Lundi, 6 Dimanche
+
+            # ✅ FILTRE HEURE RÉALISTE
+            if jour_semaine == 6:  # Dimanche
+                nb_attendre += 1
+                continue
+            if jour_semaine == 5 and heure_gmt >= 20:  # Samedi soir
+                nb_attendre += 1
+                continue
+            if heure_gmt < HEURE_DEBUT or heure_gmt >= HEURE_FIN:
+                nb_attendre += 1
+                continue
+            if HEURE_PAUSE_DEBUT <= heure_gmt < HEURE_PAUSE_FIN:
+                nb_attendre += 1
+                continue
+            # ✅ 1 trade max par heure
+            if derniere_heure_trade == heure_str:
+                continue
+            # ✅ 8 trades max par jour
+            if trades_par_jour.get(jour_str, 0) >= MAX_TRADES_PAR_JOUR:
+                continue
+
             sous_df = df.iloc[:i+1].copy()
-            # Pour le backtest, on ne veut pas appeler l'API MTF à chaque fois, on met MTF neutre pour aller vite
-            # On garde les autres filtres qui sont les plus importants
-            res = analyser_signal_v3_corrige(sous_df, ticker, is_scalping=is_scalping, use_mtf=False, use_faux=True, use_vol_intel=True, use_volume=True, mtf_precalcule={"direction": "NEUTRE", "accord": "Backtest MTF OFF", "details": {}})
+            # ✅ MTF ON : on calcule avec le sous_df, pas avec tout le futur
+            mtf_calc = analyser_mtf(ticker, df_2m=sous_df)
+            # ✅ Si MTF dit CONFLIT, on ne trade pas (c'est le filtre réaliste)
+            res = analyser_signal(sous_df, ticker, is_scalping=is_scalping, use_mtf=False, use_faux=True, use_vol_intel=True, use_volume=True, mtf_precalcule=mtf_calc)
             signal = res["signal"]
             if signal == "ATTENDRE":
                 nb_attendre += 1
                 continue
+
             prix_entree = float(df.iloc[i]["Close"])
-            prix_sortie = float(df.iloc[i + pas_expiration]["Close"])
-            gagne = False
-            if signal == "CALL / HAUSSE" and prix_sortie > prix_entree:
-                gagne = True
-            if signal == "PUT / BAISSE" and prix_sortie < prix_entree:
-                gagne = True
+            # ✅ On prend le Close de la bougie d'expiration, moins le spread pour être réaliste
+            prix_sortie_brut = float(df.iloc[i + pas_expiration]["Close"])
+            # Spread : pour CALL, le prix de sortie doit être plus haut que l'entrée + spread
+            # Pour PUT, plus bas que l'entrée - spread
+            if signal == "CALL / HAUSSE":
+                prix_sortie = prix_sortie_brut - SPREAD_PIP
+                gagne = prix_sortie > prix_entree
+            else:  # PUT
+                prix_sortie = prix_sortie_brut + SPREAD_PIP
+                gagne = prix_sortie < prix_entree
+
             if gagne:
                 nb_gagne += 1
+                profit_total += mise_par_trade * PAYOUT_IQ_OPTION
             else:
                 nb_perdu += 1
-            if len(details) < 20:
-                details.append({"Bougie": str(df.index[i]), "Signal": signal, "Prix Entrée": round(prix_entree,5), "Prix Sortie": round(prix_sortie,5), "Résultat": "GAGNÉ" if gagne else "PERDU"})
+                profit_total -= mise_par_trade
+
+            derniere_heure_trade = heure_str
+            trades_par_jour[jour_str] = trades_par_jour.get(jour_str, 0) + 1
+            if len(details) < 30:
+                details.append({"Heure": idx_utc.strftime("%d/%m %H:%M"), "Signal": signal, "Entrée": round(prix_entree,5), "Sortie": round(prix_sortie,5), "Résultat": "GAGNÉ" if gagne else "PERDU", "MTF": mtf_calc["direction"], "Score H": res["score_haut"], "Score B": res["score_bas"]})
+
         total = nb_gagne + nb_perdu
         taux = (nb_gagne / total * 100) if total > 0 else 0
-        return {"nb_gagne": nb_gagne, "nb_perdu": nb_perdu, "nb_attendre": nb_attendre, "total_trades": total, "taux": taux, "details": details}, None
+        # ✅ Rentabilité réelle avec payout 85%
+        # Si tu mets 1$ par trade, à 55% tu gagnes : 55*0.85 - 45*1 = 1.75$ sur 100 trades
+        # À 50% : 50*0.85 - 50 = -7.5$ sur 100 trades
+        esperance_100_trades = (taux/100 * PAYOUT_IQ_OPTION - (1 - taux/100) * 1) * 100 if total > 0 else 0
+        return {"nb_gagne": nb_gagne, "nb_perdu": nb_perdu, "nb_attendre": nb_attendre, "total_trades": total, "taux": taux, "details": details, "profit_total": profit_total, "esperance_100": esperance_100_trades, "trades_par_jour": trades_par_jour}, None
     except Exception as e:
         return None, f"Erreur backtest : {e}"
 
@@ -619,45 +661,54 @@ if use_horaire:
         else:
             st.success(av)
 
-# ✅ CORRECTION 20 : Bouton BACKTEST
+# ================= 🧪 BACKTEST RÉALISTE =================
 st.divider()
-st.header("🧪 BACKTEST - Teste avant de mettre de l'argent réel")
-st.info("Le backtest rejoue ta stratégie sur les 5 derniers jours en 2m. Si ton taux est en dessous de 55%, ne passe pas en réel.")
-if st.button("🧪 LANCER LE BACKTEST 5 JOURS - V4 CORRIGÉ", type="secondary"):
+st.header("🧪 BACKTEST RÉALISTE - V5")
+st.info(f"Règles : 07h-17h GMT seulement, pas 12h-14h, 1 trade/heure max, {MAX_TRADES_PAR_JOUR} trades/jour max, MTF ON, Spread {SPREAD_PIP} déduit, Payout {int(PAYOUT_IQ_OPTION*100)}%.")
+if st.button("🧪 LANCER LE BACKTEST RÉALISTE 5 JOURS", type="secondary"):
     is_scalp_bt = mode.startswith("⚡")
-    with st.spinner("Backtest en cours... ça peut prendre 30 secondes..."):
+    with st.spinner("Backtest réaliste en cours... 20-30 secondes... (MTF ON, c'est plus lent mais plus vrai)"):
         ticker_bt = PAIRES[paire]
-        # Pour DXY, on utilise le secours si besoin
         if paire == "Dollar Index (DXY)":
             df_test = recuperer_donnees(ticker_bt, interval="2m", period="1d")
             if df_test.empty:
                 ticker_bt = "^DXY"
-        resultat_bt, erreur_bt = faire_backtest(ticker_bt, paire, is_scalping=is_scalp_bt)
+        resultat_bt, erreur_bt = faire_backtest_realiste(ticker_bt, paire, is_scalping=is_scalp_bt, expiration_min=expiration)
         if erreur_bt:
             st.error(erreur_bt)
         else:
             col_b1, col_b2, col_b3, col_b4 = st.columns(4)
             with col_b1:
-                st.metric("Trades testés", resultat_bt["total_trades"])
+                st.metric("Trades réalistes", resultat_bt["total_trades"])
             with col_b2:
                 st.metric("✅ GAGNÉ", resultat_bt["nb_gagne"])
             with col_b3:
                 st.metric("❌ PERDU", resultat_bt["nb_perdu"])
             with col_b4:
-                st.metric("🏆 Taux Backtest", f"{resultat_bt['taux']:.1f}%")
+                st.metric("🏆 Taux Réaliste", f"{resultat_bt['taux']:.1f}%")
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.metric("💰 Profit si 1$ / trade", f"{resultat_bt['profit_total']:.2f}$ sur {resultat_bt['total_trades']} trades")
+            with col_p2:
+                st.metric("📈 Espérance / 100 trades (1$)", f"{resultat_bt['esperance_100']:.2f}$")
             if resultat_bt["taux"] >= 60:
-                st.success(f"✅ Bon backtest : {resultat_bt['taux']:.1f}% - Tu peux tester en démo.")
+                st.success(f"✅ Excellent : {resultat_bt['taux']:.1f}% - Tu peux tester en démo. Profit {resultat_bt['profit_total']:.2f}$.")
             elif resultat_bt["taux"] >= 55:
-                st.warning(f"🟡 Backtest moyen : {resultat_bt['taux']:.1f}% - Prudence, teste en démo d'abord.")
+                st.warning(f"🟡 Rentable mais juste : {resultat_bt['taux']:.1f}% - Teste en démo d'abord. Profit {resultat_bt['profit_total']:.2f}$.")
+            elif resultat_bt["taux"] >= 50:
+                st.error(f"🔴 Non rentable : {resultat_bt['taux']:.1f}% - Avec payout 85%, tu perds {resultat_bt['profit_total']:.2f}$ sur {resultat_bt['total_trades']} trades. NE PASSE PAS EN RÉEL.")
             else:
-                st.error(f"🔴 Backtest faible : {resultat_bt['taux']:.1f}% - NE PASSE PAS EN RÉEL. Change de paire ou de niveau.")
-            st.write(f"ATTENDRE : {resultat_bt['nb_attendre']} fois - C'est normal, le filtre bloque beaucoup.")
+                st.error(f"🔴 Très faible : {resultat_bt['taux']:.1f}% - Tu perds {abs(resultat_bt['profit_total']):.2f}$ sur {resultat_bt['total_trades']} trades. Change de paire ou de stratégie.")
+            st.write(f"ATTENDRE : {resultat_bt['nb_attendre']} fois - C'est normal, le filtre bloque beaucoup. C'est bien.")
+            if len(resultat_bt["trades_par_jour"]) > 0:
+                st.write("**Trades par jour :**", resultat_bt["trades_par_jour"])
             if len(resultat_bt["details"]) > 0:
                 st.dataframe(pd.DataFrame(resultat_bt["details"]), use_container_width=True, hide_index=True)
+            st.caption("Si tu as moins de 20 trades en 5 jours, c'est que le filtre est très strict. C'est bien, mieux vaut 20 bons trades que 650 mauvais.")
 
-if st.button("🔍 ANALYSER MAINTENANT - V4 FINAL CORRIGÉ", type="primary"):
+if st.button("🔍 ANALYSER MAINTENANT - V5", type="primary"):
     is_scalp = mode.startswith("⚡")
-    with st.spinner("Analyse V4 finale : 2m + MTF 2-5-15 + Faux Cassure corrigé + Confirmation bougie + Délai OTC 5s..."):
+    with st.spinner("Analyse V5 : 2m + MTF 2-5-15 + Faux Cassure + Confirmation bougie..."):
         ticker = PAIRES[paire]
         df = recuperer_donnees_avec_secours(ticker, interval="2m", period="1d", paire_nom=paire)
         if df.empty or len(df) < 100:
@@ -669,26 +720,26 @@ if st.button("🔍 ANALYSER MAINTENANT - V4 FINAL CORRIGÉ", type="primary"):
             if len(df) < 4:
                 st.error("Pas assez de données.")
             else:
-                analyse = analyser_signal_v3_corrige(df, ticker, is_scalping=is_scalp, use_mtf=use_mtf, use_faux=use_faux, use_vol_intel=use_vol_intel, use_volume=use_volume)
+                analyse = analyser_signal(df, ticker, is_scalping=is_scalp, use_mtf=use_mtf, use_faux=use_faux, use_vol_intel=use_vol_intel, use_volume=use_volume)
                 c = df.iloc[-1]
                 nouvel_id = str(uuid.uuid4())[:8]
                 st.session_state.historique.append({"ID": nouvel_id, "Heure": datetime.now().strftime("%H:%M:%S"), "Paire": paire, "Mode": "SCALPING" if is_scalp else "V2 PRO", "Signal": analyse["signal"], "Prix": round(float(c["Close"]),5), "Score H": analyse["score_haut"], "Score B": analyse["score_bas"], "MTF": analyse["mtf"]["direction"], "Dernière Bougie": analyse.get("derniere_direction","?"), "Volume": analyse["vol"].get("statut","-"), "Résultat": "En attente"})
                 sauvegarder_historique()
                 st.divider()
-                st.subheader(f"🎯 SIGNAL V4 FINAL - Graphique 2m")
+                st.subheader(f"🎯 SIGNAL V5 - Graphique 2m")
                 st.metric("Prix", f"{float(c['Close']):.5f}")
                 st.metric("RSI 14 / RSI 7", f"{float(c['RSI']):.1f} / {float(c['RSI7']):.1f}")
                 st.metric("EMA 5 / 9 / 21", f"{float(c['EMA5']):.5f} / {float(c['EMA9']):.5f} / {float(c['EMA21']):.5f}")
                 st.metric("WCCI / CFO", f"{float(c['WCCI']):.1f} / {float(c['CFO']):.4f}")
                 st.metric("Dernière bougie fermée (2m)", f"{analyse.get('derniere_direction','?')} - Doji ? {analyse.get('derniere_est_doji','?')}")
                 if analyse["signal"] == "CALL / HAUSSE":
-                    st.success(f"🟢 CALL - {expiration} mn - V4 VALIDÉ (2m + MTF + Bougie confirmée)")
-                    st.warning("⚠️ Vérifie sur IQ Option avant de cliquer. Attends 5 secondes après la fermeture. Le prix OTC peut être différent de Yahoo.")
+                    st.success(f"🟢 CALL - {expiration} mn - V5 VALIDÉ")
+                    st.warning("⚠️ Vérifie sur IQ Option. Attends 5s après fermeture. Prix OTC différent de Yahoo.")
                 elif analyse["signal"] == "PUT / BAISSE":
-                    st.error(f"🔴 PUT - {expiration} mn - V4 VALIDÉ (2m + MTF + Bougie confirmée)")
-                    st.warning("⚠️ Vérifie sur IQ Option avant de cliquer. Attends 5 secondes après la fermeture. Le prix OTC peut être différent de Yahoo.")
+                    st.error(f"🔴 PUT - {expiration} mn - V5 VALIDÉ")
+                    st.warning("⚠️ Vérifie sur IQ Option. Attends 5s après fermeture. Prix OTC différent de Yahoo.")
                 else:
-                    st.warning("⏳ ATTENDRE - V4 a bloqué")
+                    st.warning("⏳ ATTENDRE - V5 a bloqué")
                 st.write("**Motif :**", analyse["raison"])
                 col1, col2 = st.columns(2)
                 with col1:
@@ -696,17 +747,15 @@ if st.button("🔍 ANALYSER MAINTENANT - V4 FINAL CORRIGÉ", type="primary"):
                 with col2:
                     st.metric("Score BAISSE", f"{analyse['score_bas']}/6")
                 st.divider()
-                st.subheader("1️⃣ Multi-Timeframe CORRIGÉ - 2m, 5m, 15m")
+                st.subheader("1️⃣ Multi-Timeframe - 2m, 5m, 15m")
                 st.info(analyse["mtf"]["accord"])
                 st.dataframe(pd.DataFrame([analyse["mtf"]["details"]]), use_container_width=True)
-                st.caption("Si 2m dit HAUSSE et 15m dit BAISSE = CONFLIT = ATTENDRE.")
-                st.subheader("2️⃣ Faux Cassure CORRIGÉ")
+                st.subheader("2️⃣ Faux Cassure")
                 if analyse["faux"]["faux"]:
                     st.error(analyse["faux"]["texte"])
                 else:
                     st.success(analyse["faux"]["texte"])
-                st.caption("Vérifié avec les niveaux de chaque bougie au moment de la cassure.")
-                st.subheader("4️⃣ Volatilité Intelligente")
+                st.subheader("4️⃣ Volatilité")
                 if analyse["vol_intel"]["statut"] in ["SQUEEZE","TROP_HAUTE","TROP_BASSE"]:
                     st.warning(analyse["vol_intel"]["texte"])
                 else:
@@ -719,31 +768,22 @@ if st.button("🔍 ANALYSER MAINTENANT - V4 FINAL CORRIGÉ", type="primary"):
                 else:
                     st.info(analyse["vol"]["texte"])
                 st.divider()
-                st.subheader("🕯️ 3. Chandeliers Avancés - 3 Bougies 2m")
+                st.subheader("🕯️ 3. Chandeliers - 3 Bougies 2m")
                 if len(analyse["info_3"]["liste"]) > 0:
                     st.info(f"**Figure :** {analyse['info_3']['figure_3']} | **Force :** {analyse['info_3']['force_3']} | **Vertes :** {analyse['info_3']['nb_hausse']} | **Rouges :** {analyse['info_3']['nb_baisse']} | **Doji :** {analyse['info_3']['nb_doji']} | **Dernière :** {analyse.get('derniere_direction')}")
                     st.dataframe(pd.DataFrame(analyse["info_3"]["liste"]), use_container_width=True, hide_index=True)
                 st.divider()
-                st.subheader("📍 Support / Résistance - abs() 0.20")
+                st.subheader("📍 Support / Résistance")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("Support", f"{float(analyse['support']):.5f}" if pd.notna(analyse["support"]) else "Indisponible")
-                    if analyse["proche_support"]:
-                        st.caption("⚠️ Collé au Support : abs(prix - support) <= 0.20 x ATR")
                 with col2:
                     st.metric("Résistance", f"{float(analyse['resistance']):.5f}" if pd.notna(analyse["resistance"]) else "Indisponible")
-                    if analyse["proche_resistance"]:
-                        st.caption("⚠️ Collé à la Résistance : abs(résistance - prix) <= 0.20 x ATR")
-                st.subheader("📋 Tableau Confirmations")
-                confirmations = pd.DataFrame({"Indicateur": ["EMA 9/21/50","RSI 14","WCCI 14","CFO 14","MACD","Bollinger","3 Bougies","Dernière Bougie"], "HAUSSE": [float(c["EMA9"]) > float(c["EMA21"]) > float(c["EMA50"]), 50 < float(c["RSI"]) < 70, float(c["WCCI"]) > 0, float(c["CFO"]) > 0, float(c["MACD_HIST"]) > 0, float(c["Close"]) > float(c["BB_MID"]), analyse["direction"] == "HAUSSE", analyse.get("derniere_direction") == "HAUSSE"], "BAISSE": [float(c["EMA9"]) < float(c["EMA21"]) < float(c["EMA50"]), 30 < float(c["RSI"]) < 50, float(c["WCCI"]) < 0, float(c["CFO"]) < 0, float(c["MACD_HIST"]) < 0, float(c["Close"]) < float(c["BB_MID"]), analyse["direction"] == "BAISSE", analyse.get("derniere_direction") == "BAISSE"]})
-                st.dataframe(confirmations, use_container_width=True, hide_index=True)
                 st.subheader("📈 Graphique 2m")
                 st.line_chart(df[["Close","BB_UPPER","BB_MID","BB_LOWER","EMA5","EMA9","EMA21"]].tail(100))
-                st.caption("Graphique principal en 2m, comme ton MTF 2m-5m-15m.")
 
 st.divider()
-st.header("📊 7. Historique et VRAI Taux de Réussite - SAUVEGARDÉ")
-st.caption("✅ Ton historique est maintenant sauvegardé dans historique_v4.csv. Même si tu fermes l'app, il reste.")
+st.header("📊 7. Historique - SAUVEGARDÉ")
 if len(st.session_state.historique) == 0:
     st.info("Aucun signal encore.")
 else:
@@ -754,7 +794,6 @@ else:
     nb_gagne = len(df_finis[df_finis["Résultat"] == "GAGNÉ"])
     nb_perdu = len(df_finis[df_finis["Résultat"] == "PERDU"])
     nb_en_attente = len(df_trades[df_trades["Résultat"] == "En attente"])
-    nb_attendre = len(df_hist[df_hist["Signal"] == "ATTENDRE"])
     taux = (nb_gagne / (nb_gagne + nb_perdu) * 100) if (nb_gagne + nb_perdu) > 0 else 0
     col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns(5)
     with col_s1:
@@ -768,24 +807,21 @@ else:
     with col_s5:
         st.metric("🏆 Taux Réussite", f"{taux:.1f}%")
     if nb_gagne + nb_perdu > 0:
-        st.write(f"**Vrai taux :** {nb_gagne} GAGNÉ / {nb_gagne + nb_perdu} trades finis = **{taux:.1f}%**")
+        st.write(f"**Vrai taux :** {nb_gagne} GAGNÉ / {nb_gagne + nb_perdu} = **{taux:.1f}%**")
         if taux >= 60:
-            st.success(f"✅ Bon taux : {taux:.1f}% - Continue comme ça.")
-        elif taux >= 50:
-            st.warning(f"🟡 Taux moyen : {taux:.1f}% - Il faut améliorer.")
+            st.success(f"✅ Bon taux : {taux:.1f}%")
+        elif taux >= 55:
+            st.warning(f"🟡 Taux moyen : {taux:.1f}%")
         else:
             st.error(f"🔴 Taux faible : {taux:.1f}% - Arrête et revois ta stratégie.")
-    else:
-        st.info("Aucun trade fini. Marque tes trades comme GAGNÉ ou PERDU ci-dessous.")
-    st.subheader("📜 Marque tes résultats")
     for idx, row in df_hist.iterrows():
         col_a, col_b, col_c, col_d = st.columns([2, 2, 2, 2])
         with col_a:
-            st.write(f"**{row['Heure']} - {row['Paire']} - {row['Signal']}** - Prix {row['Prix']} - MTF {row.get('MTF','?')} - Dernière {row.get('Dernière Bougie','?')}")
+            st.write(f"**{row['Heure']} - {row['Paire']} - {row['Signal']}** - Prix {row['Prix']} - MTF {row.get('MTF','?')}")
         with col_b:
             st.write(f"Score H {row['Score H']} / B {row['Score B']} - Mode {row['Mode']}")
         with col_c:
-            st.write(f"Résultat actuel : **{row['Résultat']}**")
+            st.write(f"Résultat : **{row['Résultat']}**")
         with col_d:
             if row["Signal"] in ["CALL / HAUSSE", "PUT / BAISSE"] and row["Résultat"] == "En attente":
                 c_g, c_p = st.columns(2)
@@ -808,22 +844,10 @@ else:
             elif row["Résultat"] in ["GAGNÉ", "PERDU"]:
                 st.write("✅ Enregistré")
             else:
-                st.write("— ATTENDRE, pas de trade")
-    st.divider()
-    st.subheader("📈 Par Paire - Taux par paire")
-    if len(df_finis) > 0:
-        stats_paire = []
-        for paire_nom in df_finis["Paire"].unique():
-            df_p = df_finis[df_finis["Paire"] == paire_nom]
-            g = len(df_p[df_p["Résultat"] == "GAGNÉ"])
-            p = len(df_p[df_p["Résultat"] == "PERDU"])
-            taux_p = (g / (g+p) * 100) if (g+p) > 0 else 0
-            stats_paire.append({"Paire": paire_nom, "Trades": g+p, "GAGNÉ": g, "PERDU": p, "Taux %": round(taux_p,1)})
-        st.dataframe(pd.DataFrame(stats_paire), use_container_width=True, hide_index=True)
-    # Bouton télécharger
+                st.write("— ATTENDRE")
     try:
         csv_data = pd.DataFrame(st.session_state.historique).to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Télécharger mon historique (CSV)", data=csv_data, file_name="historique_v4.csv", mime="text/csv")
+        st.download_button("📥 Télécharger historique (CSV)", data=csv_data, file_name="historique_v5.csv", mime="text/csv")
     except Exception:
         pass
     if st.button("🗑️ Effacer l'historique"):
@@ -836,26 +860,24 @@ else:
         st.rerun()
 
 st.divider()
-st.header(f"📸 Capture V4 - {paire} - {expiration} mn - Graphique 2m")
-st.caption("Pour la capture, regarde les bougies 2m, pas 1m. Et la dernière bougie doit être fermée + 5 secondes.")
+st.header(f"📸 Capture V5 - {paire} - {expiration} mn")
 if CLE_ACTIVE:
-    st.success("✅ AUTO IA active")
-    mode_capture = st.radio("Mode capture :", ["🤖 AUTO IA V4", "✍️ MANUEL"], index=0, horizontal=True)
+    mode_capture = st.radio("Mode capture :", ["🤖 AUTO IA V5", "✍️ MANUEL"], index=0, horizontal=True)
 else:
-    mode_capture = st.radio("Mode capture :", ["✍️ MANUEL", "🤖 AUTO IA V4"], index=0, horizontal=True)
-uploaded = st.file_uploader("Envoie ta capture", type=["png","jpg","jpeg","webp"], key="capture_v4_final_corrige")
+    mode_capture = st.radio("Mode capture :", ["✍️ MANUEL", "🤖 AUTO IA V5"], index=0, horizontal=True)
+uploaded = st.file_uploader("Envoie ta capture", type=["png","jpg","jpeg","webp"], key="capture_v5_realiste")
 if uploaded:
     st.image(uploaded, caption="Ta capture", use_container_width=True)
     if mode_capture.startswith("🤖"):
         if not CLE_ACTIVE:
             st.error("❌ Mets ta clé dans Secrets ou utilise MANUEL.")
         else:
-            if st.button("🧠 ANALYSER MA CAPTURE V4 FINAL", type="primary", use_container_width=True):
+            if st.button("🧠 ANALYSER MA CAPTURE V5", type="primary", use_container_width=True):
                 try:
                     mime = uploaded.type or "image/png"
                     encoded = base64.b64encode(uploaded.getvalue()).decode("utf-8")
                     data_url = f"data:{mime};base64,{encoded}"
-                    prompt = f"Tu es un analyste PRO V4 FINAL CORRIGÉ IQ Option. Actif : {paire}. Expiration : {expiration} mn. Graphique principal : 2m. Règles : 1) MTF 2m-5m-15m, si une timeframe dit l'inverse c'est CONFLIT = ATTENDRE. 2) Faux Cassure : compare chaque bougie avec le Support/Résistance de son époque. 3) Chandeliers sur 3 dernières bougies FERMÉES en 2m. 4) Confirmation obligatoire : CALL = dernière bougie verte et pas Doji, PUT = dernière bougie rouge et pas Doji. 5) Minimum 4/6 V2 PRO, 3/6 Scalping. 6) Yahoo est différent de IQ Option OTC, avertis de vérifier sur IQ Option et d'attendre 5 secondes après fermeture. Donne : tableau 3 bougies 2m, MTF 2-5-15, Faux Cassure, Confirmation dernière bougie, Score /6, CONCLUSION CALL/PUT/ATTENDRE. Ne garantis jamais un gain. Si illisible, dis ILLISIBLE."
+                    prompt = f"Tu es analyste PRO V5 IQ Option. Actif : {paire}. Expiration : {expiration} mn. Graphique 2m. Règles : MTF 2-5-15, conflit = ATTENDRE, Faux cassure avec niveaux de l'époque, Confirmation dernière bougie obligatoire, Minimum 5/6 V2 PRO, 4/6 Scalping, Heures 07h-17h GMT seulement, pas 12h-14h, 1 trade/heure. Donne tableau 3 bougies, MTF, Faux cassure, Score /6, CONCLUSION CALL/PUT/ATTENDRE. Ne garantis jamais un gain."
                     with st.spinner("🧠 L'IA analyse..."):
                         resp = client_auto.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}}]}], max_tokens=1200)
                         st.markdown(resp.choices[0].message.content)
@@ -863,27 +885,27 @@ if uploaded:
                     st.error(f"Erreur IA : {e}")
     else:
         c1, c2, c3 = st.columns(3)
-        b3_m = c1.selectbox("Bougie -3 (2m)", ["Verte","Rouge","Doji"], key="b3_final_corrige")
-        b2_m = c2.selectbox("Bougie -2 (2m)", ["Verte","Rouge","Doji"], key="b2_final_corrige")
-        b1_m = c3.selectbox("Bougie -1 (2m) - Dernière fermée", ["Verte","Rouge","Doji"], key="b1_final_corrige")
-        vol_m = st.selectbox("Volume", ["Fort","Normal","Faible","Je ne vois pas"], key="vol_final_corrige")
-        mtf_m = st.selectbox("5m et 15m ?", ["HAUSSE comme 2m","BAISSE comme 2m","Contraire à 2m (CONFLIT)","Je ne sais pas"], key="mtf_final_corrige")
-        if st.button("🔎 ANALYSER V4 FINAL - SANS CLÉ", type="primary", use_container_width=True):
+        b3_m = c1.selectbox("Bougie -3 (2m)", ["Verte","Rouge","Doji"], key="b3_v5")
+        b2_m = c2.selectbox("Bougie -2 (2m)", ["Verte","Rouge","Doji"], key="b2_v5")
+        b1_m = c3.selectbox("Bougie -1 (2m) - Dernière fermée", ["Verte","Rouge","Doji"], key="b1_v5")
+        vol_m = st.selectbox("Volume", ["Fort","Normal","Faible","Je ne vois pas"], key="vol_v5")
+        mtf_m = st.selectbox("5m et 15m ?", ["HAUSSE comme 2m","BAISSE comme 2m","Contraire à 2m (CONFLIT)","Je ne sais pas"], key="mtf_v5")
+        if st.button("🔎 ANALYSER V5 - SANS CLÉ", type="primary", use_container_width=True):
             nb_v = [b3_m, b2_m, b1_m].count("Verte")
             nb_r = [b3_m, b2_m, b1_m].count("Rouge")
             if mtf_m == "Contraire à 2m (CONFLIT)":
-                st.warning("⏳ ATTENDRE - MTF CONFLIT : 2m dit une chose, 5m/15m disent l'inverse.")
+                st.warning("⏳ ATTENDRE - MTF CONFLIT.")
             elif b1_m == "Doji":
-                st.warning("⏳ ATTENDRE - Dernière bougie Doji - Confirmation obligatoire manquante.")
+                st.warning("⏳ ATTENDRE - Dernière bougie Doji.")
             elif nb_v == 3 and b1_m == "Verte":
-                st.success(f"🟢 CALL {paire} - 3 Soldats Blancs + Dernière verte confirmée - Vérifie sur IQ Option + Attends 5s")
+                st.success(f"🟢 CALL {paire} - 3 Soldats Blancs + Dernière verte")
             elif nb_r == 3 and b1_m == "Rouge":
-                st.error(f"🔴 PUT {paire} - 3 Corbeaux Noirs + Dernière rouge confirmée - Vérifie sur IQ Option + Attends 5s")
+                st.error(f"🔴 PUT {paire} - 3 Corbeaux Noirs + Dernière rouge")
             elif nb_v == 2 and b1_m == "Verte":
-                st.success(f"🟢 CALL {paire} - 2 Vertes + Dernière verte confirmée")
+                st.success(f"🟢 CALL {paire} - 2 Vertes + Dernière verte")
             elif nb_r == 2 and b1_m == "Rouge":
-                st.error(f"🔴 PUT {paire} - 2 Rouges + Dernière rouge confirmée")
+                st.error(f"🔴 PUT {paire} - 2 Rouges + Dernière rouge")
             else:
                 st.warning(f"🟡 ATTENDRE {paire} - Dernière bougie ne confirme pas.")
 
-st.caption("IQ OPTION AI TRADER DXY V4 - TOUTES ERREURS CORRIGÉES : 2m + MTF 2-5-15 sans conflit + Seuil min 4/3 + Confirmation bougie + Faux breakout corrigé + Historique CSV sauvegardé + Backtest 5 jours + DXY secours + Heure Yahoo + Délai OTC 5s | Ne trade jamais tout ton capital.")
+st.caption("V5 BACKTEST RÉALISTE - 2m + MTF 2-5-15 + Score 5/6 + Heures 07h-17h + 1 trade/heure + Spread + Payout 85% | Ne trade jamais tout ton capital.")
