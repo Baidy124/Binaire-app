@@ -5,7 +5,7 @@ import numpy as np
 import os, base64, uuid
 from datetime import datetime, timezone, timedelta
 
-st.set_page_config(page_title="IQ OPTION AI TRADER V8 EFFICACE", page_icon="📈", layout="wide")
+st.set_page_config(page_title="IQ OPTION AI TRADER V8.3 DXY", page_icon="📈", layout="wide")
 try:
     from openai import OpenAI
 except ImportError:
@@ -35,17 +35,16 @@ BLOQUER_FAUX_CASSURE = True; BLOQUER_SQUEEZE = True; BLOQUER_VOL_TROP_HAUTE = Tr
 NB_DOJI_POUR_BLOQUER = 2; SEUIL_VOLATILITE = 0.00002; SEUIL_CORPS_BOUGIE = 0.12
 PAYOUT_IQ_OPTION = 0.85
 HEURE_DEBUT = 7; HEURE_FIN = 17; HEURE_PAUSE_DEBUT = 12; HEURE_PAUSE_FIN = 14
-MAX_TRADES_PAR_JOUR = 6  # V8 : 6 max, pas 8. Moins de trades = meilleurs trades
-# ✅ V8 NOUVEAUX SEUILS
-SEUIL_DISTANCE_EMA_ATR = 1.2  # Si prix trop loin de EMA9 > 1.2 ATR = ATTENDRE
-SEUIL_ECART_EMA_ATR = 0.25   # Si EMA9/21/50 collées < 0.25 ATR = RANGE = ATTENDRE
-RSI_MAX_CALL = 68; RSI_MIN_PUT = 32  # Ne pas acheter en surachat
+MAX_TRADES_PAR_JOUR = 6
+SEUIL_DISTANCE_EMA_ATR = 1.2; SEUIL_ECART_EMA_ATR = 0.25
+RSI_MAX_CALL = 68; RSI_MIN_PUT = 32
 
-st.title("📈 IQ OPTION AI TRADER V8 - EFFICACE")
-st.caption(f"V8 | PULLBACK + ÉPUISEMENT + DISTANCE EMA + FORCE TENDANCE + MTF 3/3 | V2 PRO {SEUIL_V2PRO}/6")
-st.warning("⚠️ V8 change tout : Moins de trades, mais meilleurs. Si tu as 30% en V7, tu ne trades PAS en V7. Tu testes V8 en DÉMO.")
-st.info("💡 Avec payout 85%, il faut 55% minimum. V8 vise 60%+ en filtrant les mauvais trades.")
-st.success("✅ V8 : On n'achète plus au sommet. On achète sur PULLBACK.")
+st.title("📈 IQ OPTION AI TRADER V8.3 - DXY CORRIGÉ")
+st.caption(f"V8.3 | DXY SYNTHÉTIQUE 2m + Horaires IQ Option DXY + V8 Pullback + MTF 3/3 | V2 PRO {SEUIL_V2PRO}/6")
+st.warning("⚠️ DXY IQ Option : Session fermée dimanche, ouvre dimanche 23h GMT / lundi 04:04 GMT. Ne trade pas quand c'est fermé.")
+st.info("💡 DXY sur IQ Option = Binaires. Prix IQ Option ≠ Yahoo à 0.01 près, mais direction identique. On trade la direction.")
+st.success("✅ V8.3 : DXY a enfin des bougies 2m + des positions CALL/PUT + horaires DXY réels.")
+st.error("⚠️ Si ton solde réel est $0.17, passe en DÉMO. Trade minimum = $1. Ne recharge pas avec une stratégie à 30%.")
 
 if CLE_ACTIVE:
     st.success("✅ Clé OpenAI active")
@@ -71,7 +70,9 @@ def sauvegarder_historique():
 if "historique" not in st.session_state:
     st.session_state.historique = charger_historique()
 
+# ✅ V8.3 - DXY EN PREMIER, car c'est TA paire
 PAIRES = {
+    "Dollar Index (DXY) - IQ Option Binaires": "^DXY",
     "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X", "USD/CHF": "USDCHF=X",
     "AUD/USD": "AUDUSD=X", "NZD/USD": "NZDUSD=X", "USD/CAD": "USDCAD=X",
     "EUR/GBP": "EURGBP=X", "EUR/JPY": "EURJPY=X", "EUR/CHF": "EURCHF=X", "EUR/AUD": "EURAUD=X",
@@ -82,8 +83,8 @@ PAIRES = {
     "USD/BRL": "USDBRL=X", "EUR/BRL": "EURBRL=X", "USD/MXN": "USDMXN=X", "USD/ZAR": "USDZAR=X",
     "USD/TRY": "USDTRY=X", "USD/INR": "USDINR=X",
     "BTC/USD": "BTC-USD", "ETH/USD": "ETH-USD", "LTC/USD": "LTC-USD", "XRP/USD": "XRP-USD",
-    "Dollar Index (DXY)": "DX-Y.NYB",
 }
+
 col_m1, col_m2 = st.columns(2)
 with col_m1:
     mode = st.radio("Mode :", [f"📊 V2 PRO - {SEUIL_V2PRO}/6", f"⚡ SCALPING - {SEUIL_SCALPING}/6"], index=0)
@@ -92,15 +93,18 @@ with col_m2:
     use_faux = st.checkbox("✅ Faux Cassure", value=True)
     use_vol_intel = st.checkbox("✅ Volatilité Intelligente", value=True)
     use_volume = st.checkbox("✅ Volume", value=True)
-    use_horaire = st.checkbox("✅ Horaire / News", value=True)
+    use_horaire = st.checkbox("✅ Horaire / Session DXY IQ Option", value=True)
     use_ichimoku = st.checkbox("✅ Ichimoku - Filtre Nuage", value=True)
-    use_v8 = st.checkbox("✅ V8 - Pullback + Épuisement + Distance EMA (RECOMMANDÉ)", value=True)
+    use_v8 = st.checkbox("✅ V8 - Pullback + Épuisement + Distance EMA", value=True)
 
 col1, col2 = st.columns(2)
 with col1:
     paire = st.selectbox("Choisir un actif", list(PAIRES.keys()))
 with col2:
     expiration = st.slider("Expiration SCALPING", 1, 5, 2) if mode.startswith("⚡") else st.slider("Expiration V2 PRO", 1, 19, 5)
+
+def is_dxy_paire(paire_nom, ticker=""):
+    return "Dollar Index" in str(paire_nom) or "DXY" in str(paire_nom) or ticker in ["^DXY", "DX-Y.NYB"]
 
 @st.cache_data(ttl=300, show_spinner=False)
 def recuperer_donnees(ticker, interval="2m", period="1d"):
@@ -125,11 +129,66 @@ def recuperer_donnees(ticker, interval="2m", period="1d"):
         return df
     except Exception:
         return pd.DataFrame()
+
+# ✅ V8.3 - DXY SYNTHÉTIQUE - C'EST ÇA QUI CORRIGE "DONNÉES INDISPONIBLES"
+def recuperer_dxy_synthetique(interval="2m", period="5d"):
+    try:
+        tickers_dxy = {"EURUSD": "EURUSD=X", "USDJPY": "USDJPY=X", "GBPUSD": "GBPUSD=X", "USDCAD": "USDCAD=X", "USDSEK": "USDSEK=X", "USDCHF": "USDCHF=X"}
+        dfs = {}
+        for nom, tick in tickers_dxy.items():
+            d = recuperer_donnees(tick, interval=interval, period=period)
+            if d.empty or len(d) < 50:
+                return pd.DataFrame(), f"Manque {nom} pour DXY"
+            dfs[nom] = d["Close"]
+        df_all = pd.concat(dfs, axis=1, join="inner")
+        df_all.columns = list(dfs.keys())
+        df_all = df_all.dropna()
+        if len(df_all) < 80:
+            return pd.DataFrame(), f"Pas assez de bougies alignées pour DXY : {len(df_all)}"
+        dxy_close = (50.14348112 * (df_all["EURUSD"] ** (-0.576)) * (df_all["USDJPY"] ** (0.136)) * (df_all["GBPUSD"] ** (-0.119)) * (df_all["USDCAD"] ** (0.091)) * (df_all["USDSEK"] ** (0.042)) * (df_all["USDCHF"] ** (0.036)))
+        df_dxy = pd.DataFrame(index=df_all.index)
+        df_dxy["Close"] = dxy_close
+        df_dxy["Open"] = dxy_close.shift(1)
+        df_dxy["High"] = pd.concat([df_dxy["Open"], df_dxy["Close"]], axis=1).max(axis=1)
+        df_dxy["Low"] = pd.concat([df_dxy["Open"], df_dxy["Close"]], axis=1).min(axis=1)
+        try:
+            vols = []
+            for nom, tick in tickers_dxy.items():
+                d = recuperer_donnees(tick, interval=interval, period=period)
+                if "Volume" in d.columns:
+                    vols.append(d["Volume"].reindex(df_all.index))
+            if vols:
+                df_dxy["Volume"] = pd.concat(vols, axis=1).mean(axis=1)
+            else:
+                df_dxy["Volume"] = 1000
+        except Exception:
+            df_dxy["Volume"] = 1000
+        df_dxy = df_dxy.dropna()
+        return df_dxy, None
+    except Exception as e:
+        return pd.DataFrame(), f"Erreur DXY synthétique : {e}"
+
 def recuperer_donnees_avec_secours(ticker, interval="2m", period="1d", paire_nom=""):
+    if is_dxy_paire(paire_nom, ticker):
+        use_period = "5d" if period in ["1d", "5d"] else period
+        df_dxy, err = recuperer_dxy_synthetique(interval=interval, period=use_period)
+        if not df_dxy.empty:
+            return df_dxy
+        df = recuperer_donnees("^DXY", interval=interval, period=use_period)
+        if not df.empty:
+            return df
+        return pd.DataFrame()
     df = recuperer_donnees(ticker, interval=interval, period=period)
-    if df.empty and paire_nom == "Dollar Index (DXY)":
-        df = recuperer_donnees("^DXY", interval=interval, period=period)
     return df
+
+def traduire_signal_dxy(signal_dxy):
+    if signal_dxy == "CALL / HAUSSE":
+        return {"dxy": "🟢 DXY CALL - Dollar FORT", "eurusd": "🔴 EUR/USD PUT", "gbpusd": "🔴 GBP/USD PUT", "usdjpy": "🟢 USD/JPY CALL", "action": "DXY monte = Dollar fort. Sur IQ Option, tu cliques DXY CALL."}
+    elif signal_dxy == "PUT / BAISSE":
+        return {"dxy": "🔴 DXY PUT - Dollar FAIBLE", "eurusd": "🟢 EUR/USD CALL", "gbpusd": "🟢 GBP/USD CALL", "usdjpy": "🔴 USD/JPY PUT", "action": "DXY descend = Dollar faible. Sur IQ Option, tu cliques DXY PUT."}
+    else:
+        return {"dxy": "⏳ DXY ATTENDRE", "eurusd": "⏳ ATTENDRE", "gbpusd": "⏳ ATTENDRE", "usdjpy": "⏳ ATTENDRE", "action": "DXY dit ATTENDRE, ne trade pas."}
+
 def garder_que_les_bougies_fermees(df, interval="2m"):
     if df is None or df.empty:
         return df
@@ -186,70 +245,36 @@ def calculer_position_ichimoku(row):
     except Exception as e:
         return {"position": "ERREUR", "signal": "ATTENDRE", "texte": f"Ichimoku erreur : {e}"}
 
-# ✅ V8 - NOUVELLE FONCTION : Analyse Pullback + Épuisement + Force - C'EST ELLE QUI FAIT MONTER LE TAUX
 def analyser_v8(df):
-    """Retourne dict avec tous les filtres V8 pour la dernière bougie."""
     try:
-        c = df.iloc[-1]
-        prix = float(c["Close"]); ema9 = float(c["EMA9"]); ema21 = float(c["EMA21"]); ema50 = float(c["EMA50"])
-        atr = float(c["ATR"]) if pd.notna(c["ATR"]) else 0.0
-        rsi = float(c["RSI"]) if pd.notna(c["RSI"]) else 50
+        c = df.iloc[-1]; prix = float(c["Close"]); ema9 = float(c["EMA9"]); ema21 = float(c["EMA21"]); ema50 = float(c["EMA50"]); atr = float(c["ATR"]) if pd.notna(c["ATR"]) else 0.0; rsi = float(c["RSI"]) if pd.notna(c["RSI"]) else 50
         if atr <= 0:
-            return {"ok_call": False, "ok_put": False, "raisons": ["ATR invalide"], "pullback_h": False, "pullback_b": False, "epuisement": False, "distance_ok": False, "force_ok": False}
-        # 1. DISTANCE EMA - Prix trop loin = retour à la moyenne = on ne trade pas
-        dist_ema9_atr = abs(prix - ema9) / atr
-        distance_ok = dist_ema9_atr <= SEUIL_DISTANCE_EMA_ATR
-        # 2. FORCE TENDANCE - EMA collées = RANGE = on ne trade pas
-        ecart_9_21 = abs(ema9 - ema21) / atr
-        ecart_21_50 = abs(ema21 - ema50) / atr
-        force_ok = (ecart_9_21 >= SEUIL_ECART_EMA_ATR) and (ecart_21_50 >= SEUIL_ECART_EMA_ATR)
-        # 3. PULLBACK - Prix revenu près de EMA9 ou EMA21 = bon prix d'entrée, pas au sommet
-        # CALL : prix juste au-dessus de EMA9/EMA21, pas trop haut
-        pullback_h = (prix >= ema9 * 0.999) and (prix <= ema9 + atr * 0.8) or (prix >= ema21 * 0.999) and (prix <= ema21 + atr * 0.8)
-        pullback_b = (prix <= ema9 * 1.001) and (prix >= ema9 - atr * 0.8) or (prix <= ema21 * 1.001) and (prix >= ema21 - atr * 0.8)
-        # Si prix très proche de EMA, c'est pullback. Si prix loin, ce n'est pas pullback.
-        # On assouplit : pullback = prix à moins de 1.0 ATR de EMA9
-        pullback_h = dist_ema9_atr <= 1.0 and prix >= ema9
-        pullback_b = dist_ema9_atr <= 1.0 and prix <= ema9
-        # 4. ÉPUISEMENT - 3 bougies même sens = fin de mouvement = ATTENDRE
-        dir_arr = df["DIR"].values
-        epuisement_h = len(dir_arr) >= 3 and dir_arr[-1] == 1 and dir_arr[-2] == 1 and dir_arr[-3] == 1
-        epuisement_b = len(dir_arr) >= 3 and dir_arr[-1] == -1 and dir_arr[-2] == -1 and dir_arr[-3] == -1
-        # 5. RSI extrême
-        rsi_ok_call = rsi <= RSI_MAX_CALL
-        rsi_ok_put = rsi >= RSI_MIN_PUT
-        # 6. MOMENTUM - MACD Hist doit augmenter dans le sens du trade
-        macd_hist = df["MACD_HIST"].values
-        mom_h = len(macd_hist) >= 2 and macd_hist[-1] > macd_hist[-2] and macd_hist[-1] > 0
-        mom_b = len(macd_hist) >= 2 and macd_hist[-1] < macd_hist[-2] and macd_hist[-1] < 0
-        ok_call = distance_ok and force_ok and pullback_h and (not epuisement_h) and rsi_ok_call and mom_h
-        ok_put = distance_ok and force_ok and pullback_b and (not epuisement_b) and rsi_ok_put and mom_b
+            return {"ok_call": False, "ok_put": False, "raisons": ["ATR invalide"], "pullback_h": False, "pullback_b": False, "epuisement_h": False, "epuisement_b": False, "distance_atr": 0, "distance_ok": False, "force_ok": False, "ecart_9_21": 0, "ecart_21_50": 0, "mom_h": False, "mom_b": False, "rsi": float(rsi)}
+        dist_ema9_atr = abs(prix - ema9) / atr; distance_ok = dist_ema9_atr <= SEUIL_DISTANCE_EMA_ATR
+        ecart_9_21 = abs(ema9 - ema21) / atr; ecart_21_50 = abs(ema21 - ema50) / atr; force_ok = (ecart_9_21 >= SEUIL_ECART_EMA_ATR) and (ecart_21_50 >= SEUIL_ECART_EMA_ATR)
+        pullback_h = dist_ema9_atr <= 1.0 and prix >= ema9; pullback_b = dist_ema9_atr <= 1.0 and prix <= ema9
+        dir_arr = df["DIR"].values; epuisement_h = len(dir_arr) >= 3 and dir_arr[-1] == 1 and dir_arr[-2] == 1 and dir_arr[-3] == 1; epuisement_b = len(dir_arr) >= 3 and dir_arr[-1] == -1 and dir_arr[-2] == -1 and dir_arr[-3] == -1
+        rsi_ok_call = rsi <= RSI_MAX_CALL; rsi_ok_put = rsi >= RSI_MIN_PUT
+        macd_hist = df["MACD_HIST"].values; mom_h = len(macd_hist) >= 2 and macd_hist[-1] > macd_hist[-2] and macd_hist[-1] > 0; mom_b = len(macd_hist) >= 2 and macd_hist[-1] < macd_hist[-2] and macd_hist[-1] < 0
+        ok_call = distance_ok and force_ok and pullback_h and (not epuisement_h) and rsi_ok_call and mom_h; ok_put = distance_ok and force_ok and pullback_b and (not epuisement_b) and rsi_ok_put and mom_b
         raisons = []
         if not distance_ok: raisons.append(f"Prix trop loin de EMA9 : {dist_ema9_atr:.2f} ATR > {SEUIL_DISTANCE_EMA_ATR}")
-        if not force_ok: raisons.append(f"RANGE : EMA collées {ecart_9_21:.2f} / {ecart_21_50:.2f} ATR < {SEUIL_ECART_EMA_ATR}")
-        if epuisement_h or epuisement_b: raisons.append("ÉPUISEMENT : 3 bougies même sens - Fin de mouvement")
+        if not force_ok: raisons.append(f"RANGE : EMA collées {ecart_9_21:.2f} / {ecart_21_50:.2f} ATR")
+        if epuisement_h or epuisement_b: raisons.append("ÉPUISEMENT : 3 bougies même sens")
         if not rsi_ok_call and not rsi_ok_put: raisons.append(f"RSI extrême : {rsi:.1f}")
         return {"ok_call": bool(ok_call), "ok_put": bool(ok_put), "raisons": raisons, "pullback_h": bool(pullback_h), "pullback_b": bool(pullback_b), "epuisement_h": bool(epuisement_h), "epuisement_b": bool(epuisement_b), "distance_atr": float(dist_ema9_atr), "distance_ok": bool(distance_ok), "force_ok": bool(force_ok), "ecart_9_21": float(ecart_9_21), "ecart_21_50": float(ecart_21_50), "mom_h": bool(mom_h), "mom_b": bool(mom_b), "rsi": float(rsi)}
     except Exception as e:
         return {"ok_call": False, "ok_put": False, "raisons": [f"Erreur V8 : {e}"], "pullback_h": False, "pullback_b": False, "epuisement_h": False, "epuisement_b": False, "distance_atr": 0, "distance_ok": False, "force_ok": False, "ecart_9_21": 0, "ecart_21_50": 0, "mom_h": False, "mom_b": False, "rsi": 50}
 
 def calculer_indicateurs(df):
-    df = df.copy()
-    close = df["Close"]; high = df["High"]; low = df["Low"]
-    df["EMA9"] = close.ewm(span=9, adjust=False).mean()
-    df["EMA21"] = close.ewm(span=21, adjust=False).mean()
-    df["EMA50"] = close.ewm(span=50, adjust=False).mean()
-    df["EMA5"] = close.ewm(span=5, adjust=False).mean()
+    df = df.copy(); close = df["Close"]; high = df["High"]; low = df["Low"]
+    df["EMA9"] = close.ewm(span=9, adjust=False).mean(); df["EMA21"] = close.ewm(span=21, adjust=False).mean(); df["EMA50"] = close.ewm(span=50, adjust=False).mean(); df["EMA5"] = close.ewm(span=5, adjust=False).mean()
     delta = close.diff(); gain = delta.clip(lower=0); loss = -delta.clip(upper=0)
     avg_gain = gain.ewm(alpha=1/14, adjust=False, min_periods=14).mean(); avg_loss = loss.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan); df["RSI"] = 100 - (100 / (1 + rs))
-    df.loc[(avg_loss == 0) & (avg_gain > 0), "RSI"] = 100; df.loc[(avg_gain == 0) & (avg_loss > 0), "RSI"] = 0
-    avg_gain7 = gain.ewm(alpha=1/7, adjust=False, min_periods=7).mean(); avg_loss7 = loss.ewm(alpha=1/7, adjust=False, min_periods=7).mean()
-    rs7 = avg_gain7 / avg_loss7.replace(0, np.nan); df["RSI7"] = 100 - (100 / (1 + rs7))
-    df["BB_MID"] = close.rolling(20).mean(); ecart = close.rolling(20).std()
-    df["BB_UPPER"] = df["BB_MID"] + (2 * ecart); df["BB_LOWER"] = df["BB_MID"] - (2 * ecart); df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / df["BB_MID"].replace(0, np.nan)
-    typical = (high + low + close) / 3; moyenne = typical.rolling(14).mean(); deviation = (typical - moyenne).abs().rolling(14).mean()
-    df["WCCI"] = ((typical - moyenne) / (0.015 * deviation.replace(0, np.nan)))
+    rs = avg_gain / avg_loss.replace(0, np.nan); df["RSI"] = 100 - (100 / (1 + rs)); df.loc[(avg_loss == 0) & (avg_gain > 0), "RSI"] = 100; df.loc[(avg_gain == 0) & (avg_loss > 0), "RSI"] = 0
+    avg_gain7 = gain.ewm(alpha=1/7, adjust=False, min_periods=7).mean(); avg_loss7 = loss.ewm(alpha=1/7, adjust=False, min_periods=7).mean(); rs7 = avg_gain7 / avg_loss7.replace(0, np.nan); df["RSI7"] = 100 - (100 / (1 + rs7))
+    df["BB_MID"] = close.rolling(20).mean(); ecart = close.rolling(20).std(); df["BB_UPPER"] = df["BB_MID"] + (2 * ecart); df["BB_LOWER"] = df["BB_MID"] - (2 * ecart); df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / df["BB_MID"].replace(0, np.nan)
+    typical = (high + low + close) / 3; moyenne = typical.rolling(14).mean(); deviation = (typical - moyenne).abs().rolling(14).mean(); df["WCCI"] = ((typical - moyenne) / (0.015 * deviation.replace(0, np.nan)))
     def _cfo_corrige(close_series, window=14):
         arr = close_series.values.astype(float); n = len(arr); out = np.full(n, np.nan); x = np.arange(window, dtype=float); x_mean = x.mean(); denom = ((x - x_mean) ** 2).sum()
         if denom == 0: return out
@@ -260,29 +285,20 @@ def calculer_indicateurs(df):
             if y[-1] != 0: out[i] = ((y[-1] - forecast_i) / y[-1]) * 100
         return out
     df["CFO"] = _cfo_corrige(close, 14)
-    ema12 = close.ewm(span=12, adjust=False).mean(); ema26 = close.ewm(span=26, adjust=False).mean()
-    df["MACD"] = ema12 - ema26; df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean(); df["MACD_HIST"] = (df["MACD"] - df["MACD_SIGNAL"])
-    previous_close = close.shift(1); tr = pd.concat([high - low, (high - previous_close).abs(), (low - previous_close).abs()], axis=1).max(axis=1)
-    df["ATR"] = tr.ewm(alpha=1/14, adjust=False, min_periods=14).mean(); df["ATR_MOYEN"] = df["ATR"].rolling(50).mean()
+    ema12 = close.ewm(span=12, adjust=False).mean(); ema26 = close.ewm(span=26, adjust=False).mean(); df["MACD"] = ema12 - ema26; df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean(); df["MACD_HIST"] = (df["MACD"] - df["MACD_SIGNAL"])
+    previous_close = close.shift(1); tr = pd.concat([high - low, (high - previous_close).abs(), (low - previous_close).abs()], axis=1).max(axis=1); df["ATR"] = tr.ewm(alpha=1/14, adjust=False, min_periods=14).mean(); df["ATR_MOYEN"] = df["ATR"].rolling(50).mean()
     df["SUPPORT"] = low.rolling(30).min().shift(1); df["RESISTANCE"] = high.rolling(30).max().shift(1)
     if "Volume" in df.columns: df["VOL_MOYEN"] = df["Volume"].rolling(20).mean()
     ema9 = df["EMA9"].values; ema21 = df["EMA21"].values; ema50 = df["EMA50"].values; rsi = df["RSI"].values; wcci = df["WCCI"].values; cfo = df["CFO"].values; macd_hist = df["MACD_HIST"].values; bb_mid = df["BB_MID"].values; close_v = close.values
     tendance_h = (ema9 > ema21) & (ema21 > ema50); tendance_b = (ema9 < ema21) & (ema21 < ema50)
     df["SCORE_H"] = (tendance_h.astype(int) + ((rsi > 50) & (rsi < 70)).astype(int) + (wcci > 0).astype(int) + (cfo > 0).astype(int) + (macd_hist > 0).astype(int) + (close_v > bb_mid).astype(int))
     df["SCORE_B"] = (tendance_b.astype(int) + ((rsi > 30) & (rsi < 50)).astype(int) + (wcci < 0).astype(int) + (cfo < 0).astype(int) + (macd_hist < 0).astype(int) + (close_v < bb_mid).astype(int))
-    o = df["Open"].values; c = df["Close"].values; h = df["High"].values; l = df["Low"].values
-    corps = np.abs(c - o); amp = h - l; ratio = np.divide(corps, amp, out=np.zeros_like(corps, dtype=float), where=amp != 0)
+    o = df["Open"].values; c = df["Close"].values; h = df["High"].values; l = df["Low"].values; corps = np.abs(c - o); amp = h - l; ratio = np.divide(corps, amp, out=np.zeros_like(corps, dtype=float), where=amp != 0)
     direction = np.where(ratio < 0.10, 0, np.where(c > o, 1, -1)); df["DIR"] = direction; df["RATIO_CORPS"] = ratio; df["CORPS_FAIBLE"] = (amp <= 0) | (ratio < SEUIL_CORPS_BOUGIE)
-    # ✅ V8 colonnes vectorisées pour backtest rapide
-    df["DIST_EMA9_ATR"] = (df["Close"] - df["EMA9"]).abs() / df["ATR"].replace(0, np.nan)
-    df["ECART_9_21_ATR"] = (df["EMA9"] - df["EMA21"]).abs() / df["ATR"].replace(0, np.nan)
-    df["ECART_21_50_ATR"] = (df["EMA21"] - df["EMA50"]).abs() / df["ATR"].replace(0, np.nan)
-    df["FORCE_OK"] = (df["ECART_9_21_ATR"] >= SEUIL_ECART_EMA_ATR) & (df["ECART_21_50_ATR"] >= SEUIL_ECART_EMA_ATR)
-    df["DIST_OK"] = df["DIST_EMA9_ATR"] <= SEUIL_DISTANCE_EMA_ATR
-    df["PULLBACK_H"] = (df["DIST_EMA9_ATR"] <= 1.0) & (df["Close"] >= df["EMA9"])
-    df["PULLBACK_B"] = (df["DIST_EMA9_ATR"] <= 1.0) & (df["Close"] <= df["EMA9"])
-    df["MOM_H"] = (df["MACD_HIST"] > df["MACD_HIST"].shift(1)) & (df["MACD_HIST"] > 0)
-    df["MOM_B"] = (df["MACD_HIST"] < df["MACD_HIST"].shift(1)) & (df["MACD_HIST"] < 0)
+    df["DIST_EMA9_ATR"] = (df["Close"] - df["EMA9"]).abs() / df["ATR"].replace(0, np.nan); df["ECART_9_21_ATR"] = (df["EMA9"] - df["EMA21"]).abs() / df["ATR"].replace(0, np.nan); df["ECART_21_50_ATR"] = (df["EMA21"] - df["EMA50"]).abs() / df["ATR"].replace(0, np.nan)
+    df["FORCE_OK"] = (df["ECART_9_21_ATR"] >= SEUIL_ECART_EMA_ATR) & (df["ECART_21_50_ATR"] >= SEUIL_ECART_EMA_ATR); df["DIST_OK"] = df["DIST_EMA9_ATR"] <= SEUIL_DISTANCE_EMA_ATR
+    df["PULLBACK_H"] = (df["DIST_EMA9_ATR"] <= 1.0) & (df["Close"] >= df["EMA9"]); df["PULLBACK_B"] = (df["DIST_EMA9_ATR"] <= 1.0) & (df["Close"] <= df["EMA9"])
+    df["MOM_H"] = (df["MACD_HIST"] > df["MACD_HIST"].shift(1)) & (df["MACD_HIST"] > 0); df["MOM_B"] = (df["MACD_HIST"] < df["MACD_HIST"].shift(1)) & (df["MACD_HIST"] < 0)
     df = ajouter_ichimoku(df)
     return df
 
@@ -298,8 +314,7 @@ def decrire_une_bougie(row):
 
 def analyser_trois_bougies_avance(df):
     if df is None or len(df) < 3: return {"liste": [], "figure_3": "Pas assez", "direction_3": "NEUTRE", "force_3": "Faible", "nb_hausse": 0, "nb_baisse": 0, "nb_doji": 0, "chandelier": "Pas assez", "direction": "NEUTRE", "derniere_direction": "NEUTRE", "derniere_est_doji": True}
-    b3 = df.iloc[-3]; b2 = df.iloc[-2]; b1 = df.iloc[-1]
-    desc3, dir3, ratio3 = decrire_une_bougie(b3); desc2, dir2, ratio2 = decrire_une_bougie(b2); desc1, dir1, ratio1 = decrire_une_bougie(b1)
+    b3 = df.iloc[-3]; b2 = df.iloc[-2]; b1 = df.iloc[-1]; desc3, dir3, ratio3 = decrire_une_bougie(b3); desc2, dir2, ratio2 = decrire_une_bougie(b2); desc1, dir1, ratio1 = decrire_une_bougie(b1)
     def sf(x):
         try: return round(float(x), 5)
         except Exception: return 0.0
@@ -331,7 +346,6 @@ def analyser_volume(df):
         return {"statut": "NORMAL", "texte": f"Volume normal : {ratio:.2f}x", "ratio": ratio}
     except Exception: return {"statut": "SANS_VOLUME", "texte": "Erreur volume"}
 
-# ✅ V8 MTF 3/3 STRICT - Avant c'était 2/3, maintenant 3/3
 def calculer_mtf_vectorise(df2, df5, df15):
     n = len(df2); dir_2m = np.full(n, "NEUTRE", dtype=object); dir_5m = np.full(n, "NEUTRE", dtype=object); dir_15m = np.full(n, "NEUTRE", dtype=object)
     try:
@@ -347,15 +361,27 @@ def calculer_mtf_vectorise(df2, df5, df15):
     _map_mtf_vrai(df5, dir_5m); _map_mtf_vrai(df15, dir_15m)
     mtf_final = np.full(n, "NEUTRE", dtype=object)
     for i in range(n):
-        # ✅ V8 : 3/3 obligatoire, plus de 2/3
         if dir_2m[i] == "HAUSSE" and dir_5m[i] == "HAUSSE" and dir_15m[i] == "HAUSSE": mtf_final[i] = "HAUSSE"
         elif dir_2m[i] == "BAISSE" and dir_5m[i] == "BAISSE" and dir_15m[i] == "BAISSE": mtf_final[i] = "BAISSE"
-        elif dir_2m[i] != dir_5m[i] or dir_5m[i] != dir_15m[i]: mtf_final[i] = "CONFLIT" if (dir_2m[i] in ["HAUSSE","BAISSE"] and dir_5m[i] in ["HAUSSE","BAISSE"] and dir_2m[i] != dir_5m[i]) else "NEUTRE"
+        elif dir_2m[i] in ["HAUSSE","BAISSE"] and dir_5m[i] in ["HAUSSE","BAISSE"] and dir_2m[i] != dir_5m[i]: mtf_final[i] = "CONFLIT"
         else: mtf_final[i] = "NEUTRE"
     return {"2m": dir_2m, "5m": dir_5m, "15m": dir_15m, "final": mtf_final}
 
-def analyser_horaire():
-    now = datetime.now(timezone.utc); heure = now.hour; jour = now.weekday(); av = []
+# ✅ V8.3 - HORAIRES DXY IQ OPTION CORRIGÉS D'APRÈS TA CAPTURE
+def analyser_horaire(is_dxy=False):
+    now = datetime.now(timezone.utc); heure = now.hour; jour = now.weekday()
+    noms = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+    if is_dxy:
+        if jour == 6 and heure < 23:
+            return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": "Dimanche", "avertissements": ["🔴 DXY IQ OPTION FERMÉ : Dimanche. Ouverture dimanche 23h GMT / lundi 04:04 GMT. Comme sur ta capture."]}
+        if jour == 5:
+            return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": "Samedi", "avertissements": ["🔴 DXY IQ OPTION FERMÉ : Samedi. Attends dimanche 23h GMT."]}
+        if 12 <= heure < 14:
+            return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": noms[jour], "avertissements": ["🟡 DXY : 12h-14h GMT Pause - Évite."]}
+        if heure >= 22:
+            return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": noms[jour], "avertissements": ["🔴 DXY IQ OPTION FERMÉ : Après 22h GMT."]}
+        return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": noms[jour], "avertissements": [f"✅ DXY IQ OPTION OUVERT : {now.strftime('%H:%M')} GMT - Tu peux trader DXY."]}
+    av = []
     if jour == 6: av.append("🔴 DIMANCHE : Marché fermé.")
     if jour == 5 and heure >= 20: av.append("🟡 SAMEDI SOIR GMT : Marché va fermer.")
     if 12 <= heure < 14: av.append("🟡 12h-14h GMT : Pause déjeuner.")
@@ -364,44 +390,63 @@ def analyser_horaire():
     if 7 <= heure < 10: av.append("✅ 07h-10h GMT : Ouverture Londres.")
     if 13 <= heure < 17: av.append("✅ 13h-17h GMT : Londres + New York.")
     if not av: av.append(f"✅ Heure OK : {now.strftime('%H:%M')} GMT")
-    return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"][jour], "avertissements": av}
+    return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": noms[jour], "avertissements": av}
+
 def _normaliser_index_utc(idx):
     try:
         if idx.tzinfo is None: return idx.tz_localize("UTC")
         return idx.tz_convert("UTC")
     except Exception: return idx
-def _filtre_heure_realiste(idx_utc):
+
+# ✅ V8.3 - FILTRE HEURE DXY CORRIGÉ
+def _filtre_heure_realiste(idx_utc, is_dxy=False):
     h = idx_utc.hour; js = idx_utc.weekday()
+    if is_dxy:
+        if js == 6:
+            return h >= 23
+        if js == 5:
+            return False
+        if 12 <= h < 14:
+            return False
+        if h >= 22:
+            return False
+        return True
     if js == 6: return False
     if js == 5 and h >= 20: return False
     if h < HEURE_DEBUT or h >= HEURE_FIN: return False
     if HEURE_PAUSE_DEBUT <= h < HEURE_PAUSE_FIN: return False
     return True
+
 def _calcul_resultat(nb_g, nb_p, profit, details, nb_att, trades_jour, label):
     total = nb_g + nb_p; taux = (nb_g / total * 100) if total > 0 else 0; esp = (taux/100 * PAYOUT_IQ_OPTION - (1 - taux/100) * 1) * 100 if total > 0 else 0
     return {"nb_gagne": nb_g, "nb_perdu": nb_p, "nb_attendre": nb_att, "total_trades": total, "taux": taux, "details": details, "profit_total": profit, "esperance_100": esp, "trades_par_jour": trades_jour, "mode_label": label}
 
-def faire_backtest_precis_1m_performant(ticker, is_scalping=False, expiration_min=3, use_ichimoku_bt=True, use_v8_bt=True):
+def _get_dxy_dfs(ticker, paire_nom):
+    is_dxy = is_dxy_paire(paire_nom, ticker)
+    if is_dxy:
+        df2, _ = recuperer_dxy_synthetique(interval="2m", period="5d")
+        df1, _ = recuperer_dxy_synthetique(interval="1m", period="5d")
+        df5, _ = recuperer_dxy_synthetique(interval="5m", period="5d")
+        df15, _ = recuperer_dxy_synthetique(interval="15m", period="5d")
+        return df2, df1, df5, df15, True
+    return None, None, None, None, False
+
+def faire_backtest_precis_1m_performant(ticker, is_scalping=False, expiration_min=3, use_ichimoku_bt=True, use_v8_bt=True, paire_nom=""):
     if expiration_min not in [1, 3, 5]: return None, f"Mode 1 Précis : Expiration {expiration_min} min interdite."
     try:
-        df2 = recuperer_donnees(ticker, interval="2m", period="5d"); df1 = recuperer_donnees(ticker, interval="1m", period="5d"); df5 = recuperer_donnees(ticker, interval="5m", period="5d"); df15 = recuperer_donnees(ticker, interval="15m", period="5d")
+        is_dxy = is_dxy_paire(paire_nom, ticker)
+        if is_dxy:
+            df2, df1, df5, df15, _ = _get_dxy_dfs(ticker, paire_nom)
+        else:
+            df2 = recuperer_donnees(ticker, interval="2m", period="5d"); df1 = recuperer_donnees(ticker, interval="1m", period="5d"); df5 = recuperer_donnees(ticker, interval="5m", period="5d"); df15 = recuperer_donnees(ticker, interval="15m", period="5d")
         if df2.empty or len(df2) < 200: return None, "Mode 1 : Pas assez de données 2m."
         if df1.empty or len(df1) < 500: return None, "Mode 1 : Pas assez de données 1m."
         df2 = calculer_indicateurs(df2); df5 = calculer_indicateurs(df5) if not df5.empty else df5; df15 = calculer_indicateurs(df15) if not df15.empty else df15
         df2 = df2.iloc[100:].copy(); df2 = df2.dropna(subset=["RSI","WCCI","CFO","MACD_HIST","ATR","BB_MID","EMA50","tenkan","kijun"])
         if len(df2) < 50: return None, "Mode 1 : Pas assez de données."
         mtf_data = calculer_mtf_vectorise(df2, df5, df15); mtf_final = mtf_data["final"]
-        score_h = df2["SCORE_H"].values; score_b = df2["SCORE_B"].values; dir_arr = df2["DIR"].values
-        atr = df2["ATR"].values; atr_moy = df2["ATR_MOYEN"].values; bb_w = df2["BB_WIDTH"].values; bb_w_moy = df2["BB_WIDTH"].rolling(50).mean().values
-        prix_close_2m = df2["Close"].values; support = df2["SUPPORT"].values; resistance = df2["RESISTANCE"].values
-        vol = df2["Volume"].values if "Volume" in df2.columns else np.full(len(df2), np.nan); vol_moy = df2["VOL_MOYEN"].values if "VOL_MOYEN" in df2.columns else np.full(len(df2), np.nan)
-        ema5 = df2["EMA5"].values; ema9 = df2["EMA9"].values; rsi7 = df2["RSI7"].values; rsi_v = df2["RSI"].values
-        senkou_a_v = df2["senkou_a"].values; senkou_b_v = df2["senkou_b"].values; ichi_signal_v = df2["ichi_signal"].values; ichi_pos_v = df2["ichi_position"].values
-        # V8 vectorisé
-        dist_ok_v = df2["DIST_OK"].values; force_ok_v = df2["FORCE_OK"].values; pull_h_v = df2["PULLBACK_H"].values; pull_b_v = df2["PULLBACK_B"].values; mom_h_v = df2["MOM_H"].values; mom_b_v = df2["MOM_B"].values
-        idx1_utc = pd.DatetimeIndex([_normaliser_index_utc(x) for x in df1.index]); close1 = df1["Close"].values
-        doji_3 = pd.Series((dir_arr == 0).astype(int)).rolling(3).sum().values
-        # Épuisement vectorisé : 3 bougies même sens
+        score_h = df2["SCORE_H"].values; score_b = df2["SCORE_B"].values; dir_arr = df2["DIR"].values; atr = df2["ATR"].values; atr_moy = df2["ATR_MOYEN"].values; bb_w = df2["BB_WIDTH"].values; bb_w_moy = df2["BB_WIDTH"].rolling(50).mean().values; prix_close_2m = df2["Close"].values; support = df2["SUPPORT"].values; resistance = df2["RESISTANCE"].values; vol = df2["Volume"].values if "Volume" in df2.columns else np.full(len(df2), np.nan); vol_moy = df2["VOL_MOYEN"].values if "VOL_MOYEN" in df2.columns else np.full(len(df2), np.nan); ema5 = df2["EMA5"].values; ema9 = df2["EMA9"].values; rsi7 = df2["RSI7"].values; rsi_v = df2["RSI"].values; senkou_a_v = df2["senkou_a"].values; senkou_b_v = df2["senkou_b"].values; ichi_signal_v = df2["ichi_signal"].values; ichi_pos_v = df2["ichi_position"].values; dist_ok_v = df2["DIST_OK"].values; force_ok_v = df2["FORCE_OK"].values; pull_h_v = df2["PULLBACK_H"].values; pull_b_v = df2["PULLBACK_B"].values; mom_h_v = df2["MOM_H"].values; mom_b_v = df2["MOM_B"].values
+        idx1_utc = pd.DatetimeIndex([_normaliser_index_utc(x) for x in df1.index]); close1 = df1["Close"].values; doji_3 = pd.Series((dir_arr == 0).astype(int)).rolling(3).sum().values
         epuis_h = np.zeros(len(df2), dtype=bool); epuis_b = np.zeros(len(df2), dtype=bool)
         for i in range(2, len(df2)):
             if dir_arr[i]==1 and dir_arr[i-1]==1 and dir_arr[i-2]==1: epuis_h[i]=True
@@ -412,13 +457,12 @@ def faire_backtest_precis_1m_performant(ticker, is_scalping=False, expiration_mi
                 if j < 0 or j+1 >= len(df2): continue
                 if np.isfinite(resistance[j]) and prix_close_2m[j] > resistance[j] and prix_close_2m[j+1] < resistance[j]: faux_arr[i]=True; break
                 if np.isfinite(support[j]) and prix_close_2m[j] < support[j] and prix_close_2m[j+1] > support[j]: faux_arr[i]=True; break
-        seuil = SEUIL_SCALPING if is_scalping else SEUIL_V2PRO
-        nb_g=0; nb_p=0; nb_att=0; details=[]; trades_jour={}; derniere_heure=None; profit=0.0; mise=1.0; deja_vus=set()
+        seuil = SEUIL_SCALPING if is_scalping else SEUIL_V2PRO; nb_g=0; nb_p=0; nb_att=0; details=[]; trades_jour={}; derniere_heure=None; profit=0.0; mise=1.0; deja_vus=set()
         for i in range(60, len(df2)-2):
             idx2=df2.index[i]; idx2_utc=_normaliser_index_utc(idx2); cle=idx2_utc.strftime("%Y-%m-%d %H:%M")
             if cle in deja_vus: continue
             deja_vus.add(cle)
-            if not _filtre_heure_realiste(idx2_utc): nb_att+=1; continue
+            if not _filtre_heure_realiste(idx2_utc, is_dxy=is_dxy): nb_att+=1; continue
             jour_str=idx2_utc.strftime("%Y-%m-%d"); heure_str=idx2_utc.strftime("%Y-%m-%d %H")
             if derniere_heure==heure_str: continue
             if trades_jour.get(jour_str,0)>=MAX_TRADES_PAR_JOUR: continue
@@ -432,7 +476,6 @@ def faire_backtest_precis_1m_performant(ticker, is_scalping=False, expiration_mi
                         if sh>=seuil and ichi_signal_v[i]=="PUT": nb_att+=1; continue
                         if sb>=seuil and ichi_signal_v[i]=="CALL": nb_att+=1; continue
                 except Exception: pass
-            # ✅ V8 FILTRES BACKTEST - Ceux qui font monter le taux
             if use_v8_bt:
                 if not dist_ok_v[i]: nb_att+=1; continue
                 if not force_ok_v[i]: nb_att+=1; continue
@@ -455,8 +498,7 @@ def faire_backtest_precis_1m_performant(ticker, is_scalping=False, expiration_mi
             if doji_3[i]>=NB_DOJI_POUR_BLOQUER: nb_att+=1; continue
             v=vol[i]; vm=vol_moy[i]
             if BLOQUER_VOLUME_FAIBLE and np.isfinite(v) and np.isfinite(vm) and vm>0 and (v/vm)<0.7: nb_att+=1; continue
-            sup_i=support[i]; res_i=resistance[i]; proche_sup=np.isfinite(sup_i) and atr_i>0 and abs(prix_i-sup_i)<=atr_i*0.20; proche_res=np.isfinite(res_i) and atr_i>0 and abs(res_i-prix_i)<=atr_i*0.20
-            derniere_dir=dir_arr[i]; signal="ATTENDRE"
+            sup_i=support[i]; res_i=resistance[i]; proche_sup=np.isfinite(sup_i) and atr_i>0 and abs(prix_i-sup_i)<=atr_i*0.20; proche_res=np.isfinite(res_i) and atr_i>0 and abs(res_i-prix_i)<=atr_i*0.20; derniere_dir=dir_arr[i]; signal="ATTENDRE"
             if is_scalping:
                 scalp_h=(ema5[i]>ema9[i] and rsi7[i]>50); scalp_b=(ema5[i]<ema9[i] and rsi7[i]<50)
                 if sh>=seuil and scalp_h and not proche_res and derniere_dir==1: signal="CALL / HAUSSE"
@@ -472,25 +514,27 @@ def faire_backtest_precis_1m_performant(ticker, is_scalping=False, expiration_mi
             if pos_sortie>=len(df1): continue
             heure_entree=idx1_utc[pos_entree]; heure_sortie=idx1_utc[pos_sortie]; ecart=(heure_sortie-heure_entree).total_seconds()/60.0
             if abs(ecart-expiration_min)>2: continue
-            prix_entree=float(close1[pos_entree]); prix_sortie=float(close1[pos_sortie])
-            gagne=(prix_sortie>prix_entree) if signal=="CALL / HAUSSE" else (prix_sortie<prix_entree)
+            prix_entree=float(close1[pos_entree]); prix_sortie=float(close1[pos_sortie]); gagne=(prix_sortie>prix_entree) if signal=="CALL / HAUSSE" else (prix_sortie<prix_entree)
             if gagne: nb_g+=1; profit+=mise*PAYOUT_IQ_OPTION
             else: nb_p+=1; profit-=mise
             derniere_heure=heure_str; trades_jour[jour_str]=trades_jour.get(jour_str,0)+1
             if len(details)<30: details.append({"Heure Signal 2m": idx2_utc.strftime("%d/%m %H:%M"), "Heure Entrée 1m": heure_entree.strftime("%H:%M"), "Heure Sortie 1m": heure_sortie.strftime("%H:%M"), "Expiration": f"{expiration_min} min", "Signal": signal, "Entrée": round(prix_entree,5), "Sortie": round(prix_sortie,5), "Résultat": "GAGNÉ" if gagne else "PERDU", "MTF": mtf_dir, "Score H": sh, "Score B": sb})
-        return _calcul_resultat(nb_g, nb_p, profit, details, nb_att, trades_jour, f"MODE 1 PRÉCIS 1m + V8 - Expiration {expiration_min} min"), None
+        return _calcul_resultat(nb_g, nb_p, profit, details, nb_att, trades_jour, f"MODE 1 PRÉCIS 1m + V8.3 DXY - Expiration {expiration_min} min"), None
     except Exception as e: return None, f"Erreur backtest Mode 1 : {e}"
 
-def faire_backtest_approximatif_2m_performant(ticker, is_scalping=False, expiration_min=4, use_ichimoku_bt=True, use_v8_bt=True):
+def faire_backtest_approximatif_2m_performant(ticker, is_scalping=False, expiration_min=4, use_ichimoku_bt=True, use_v8_bt=True, paire_nom=""):
     if expiration_min not in [2,4,6]: return None, f"Mode 2 : Expiration {expiration_min} interdite."
     try:
-        df=recuperer_donnees(ticker, interval="2m", period="5d"); df5=recuperer_donnees(ticker, interval="5m", period="5d"); df15=recuperer_donnees(ticker, interval="15m", period="5d")
+        is_dxy = is_dxy_paire(paire_nom, ticker)
+        if is_dxy:
+            df, _ = recuperer_dxy_synthetique(interval="2m", period="5d"); df5, _ = recuperer_dxy_synthetique(interval="5m", period="5d"); df15, _ = recuperer_dxy_synthetique(interval="15m", period="5d")
+        else:
+            df=recuperer_donnees(ticker, interval="2m", period="5d"); df5=recuperer_donnees(ticker, interval="5m", period="5d"); df15=recuperer_donnees(ticker, interval="15m", period="5d")
         if df.empty or len(df)<200: return None, "Mode 2 : Pas assez de données."
         df=calculer_indicateurs(df); df5=calculer_indicateurs(df5) if not df5.empty else df5; df15=calculer_indicateurs(df15) if not df15.empty else df15
         df=df.iloc[100:].copy(); df=df.dropna(subset=["RSI","WCCI","CFO","MACD_HIST","ATR","BB_MID","EMA50","tenkan","kijun"])
         if len(df)<50: return None, "Mode 2 : Pas assez de données."
-        mtf_data=calculer_mtf_vectorise(df, df5, df15); mtf_final=mtf_data["final"]
-        score_h=df["SCORE_H"].values; score_b=df["SCORE_B"].values; dir_arr=df["DIR"].values; atr=df["ATR"].values; atr_moy=df["ATR_MOYEN"].values; bb_w=df["BB_WIDTH"].values; bb_w_moy=df["BB_WIDTH"].rolling(50).mean().values; prix_c=df["Close"].values; support=df["SUPPORT"].values; resistance=df["RESISTANCE"].values; vol=df["Volume"].values if "Volume" in df.columns else np.full(len(df), np.nan); vol_moy=df["VOL_MOYEN"].values if "VOL_MOYEN" in df.columns else np.full(len(df), np.nan); ema5=df["EMA5"].values; ema9=df["EMA9"].values; rsi7=df["RSI7"].values; rsi_v=df["RSI"].values; senkou_a_v=df["senkou_a"].values; senkou_b_v=df["senkou_b"].values; ichi_signal_v=df["ichi_signal"].values; ichi_pos_v=df["ichi_position"].values; dist_ok_v=df["DIST_OK"].values; force_ok_v=df["FORCE_OK"].values; pull_h_v=df["PULLBACK_H"].values; pull_b_v=df["PULLBACK_B"].values; mom_h_v=df["MOM_H"].values; mom_b_v=df["MOM_B"].values
+        mtf_data=calculer_mtf_vectorise(df, df5, df15); mtf_final=mtf_data["final"]; score_h=df["SCORE_H"].values; score_b=df["SCORE_B"].values; dir_arr=df["DIR"].values; atr=df["ATR"].values; atr_moy=df["ATR_MOYEN"].values; bb_w=df["BB_WIDTH"].values; bb_w_moy=df["BB_WIDTH"].rolling(50).mean().values; prix_c=df["Close"].values; support=df["SUPPORT"].values; resistance=df["RESISTANCE"].values; vol=df["Volume"].values if "Volume" in df.columns else np.full(len(df), np.nan); vol_moy=df["VOL_MOYEN"].values if "VOL_MOYEN" in df.columns else np.full(len(df), np.nan); ema5=df["EMA5"].values; ema9=df["EMA9"].values; rsi7=df["RSI7"].values; rsi_v=df["RSI"].values; senkou_a_v=df["senkou_a"].values; senkou_b_v=df["senkou_b"].values; ichi_signal_v=df["ichi_signal"].values; ichi_pos_v=df["ichi_position"].values; dist_ok_v=df["DIST_OK"].values; force_ok_v=df["FORCE_OK"].values; pull_h_v=df["PULLBACK_H"].values; pull_b_v=df["PULLBACK_B"].values; mom_h_v=df["MOM_H"].values; mom_b_v=df["MOM_B"].values
         doji_3=pd.Series((dir_arr==0).astype(int)).rolling(3).sum().values; epuis_h=np.zeros(len(df),dtype=bool); epuis_b=np.zeros(len(df),dtype=bool)
         for i in range(2,len(df)):
             if dir_arr[i]==1 and dir_arr[i-1]==1 and dir_arr[i-2]==1: epuis_h[i]=True
@@ -507,7 +551,7 @@ def faire_backtest_approximatif_2m_performant(ticker, is_scalping=False, expirat
             idx=df.index[i]; idx_utc=_normaliser_index_utc(idx); cle=idx_utc.strftime("%Y-%m-%d %H:%M")
             if cle in deja_vus: continue
             deja_vus.add(cle)
-            if not _filtre_heure_realiste(idx_utc): nb_att+=1; continue
+            if not _filtre_heure_realiste(idx_utc, is_dxy=is_dxy): nb_att+=1; continue
             jour_str=idx_utc.strftime("%Y-%m-%d"); heure_str=idx_utc.strftime("%Y-%m-%d %H")
             if derniere_heure==heure_str: continue
             if trades_jour.get(jour_str,0)>=MAX_TRADES_PAR_JOUR: continue
@@ -558,16 +602,20 @@ def faire_backtest_approximatif_2m_performant(ticker, is_scalping=False, expirat
             else: nb_p+=1; profit-=mise
             derniere_heure=heure_str; trades_jour[jour_str]=trades_jour.get(jour_str,0)+1
             if len(details)<30: details.append({"Heure Signal 2m": idx_utc.strftime("%d/%m %H:%M"), "Expiration": f"{expiration_min} min (approx)", "Signal": signal, "Entrée": round(prix_entree,5), "Sortie": round(prix_sortie,5), "Résultat": "GAGNÉ" if gagne else "PERDU", "MTF": mtf_dir})
-        return _calcul_resultat(nb_g, nb_p, profit, details, nb_att, trades_jour, f"MODE 2 APPROXIMATIF 2m + V8 - Expiration {expiration_min} min"), None
+        return _calcul_resultat(nb_g, nb_p, profit, details, nb_att, trades_jour, f"MODE 2 APPROXIMATIF 2m + V8.3 DXY - Expiration {expiration_min} min"), None
     except Exception as e: return None, f"Erreur backtest Mode 2 : {e}"
 
-def analyser_signal_live(df, ticker, is_scalping=False, use_mtf=True, use_faux=True, use_vol_intel=True, use_volume=True, use_ichimoku=True, use_v8=True):
+def analyser_signal_live(df, ticker, is_scalping=False, use_mtf=True, use_faux=True, use_vol_intel=True, use_volume=True, use_ichimoku=True, use_v8=True, paire_nom=""):
     c=df.iloc[-1]; prix=float(c["Close"]); atr=float(c["ATR"]) if pd.notna(c["ATR"]) else 0.0; support=float(c["SUPPORT"]) if pd.notna(c["SUPPORT"]) else np.nan; resistance=float(c["RESISTANCE"]) if pd.notna(c["RESISTANCE"]) else np.nan
     proche_sup=(pd.notna(support) and atr>0 and abs(prix-support)<=atr*0.20); proche_res=(pd.notna(resistance) and atr>0 and abs(resistance-prix)<=atr*0.20)
-    info_3=analyser_trois_bougies_avance(df); sh=int(c["SCORE_H"]) if "SCORE_H" in c else 0; sb=int(c["SCORE_B"]) if "SCORE_B" in c else 0; derniere_dir_str=info_3.get("derniere_direction","NEUTRE"); derniere_doji=info_3.get("derniere_est_doji",True)
-    ichi=calculer_position_ichimoku(c); v8=analyser_v8(df)
+    info_3=analyser_trois_bougies_avance(df); sh=int(c["SCORE_H"]) if "SCORE_H" in c else 0; sb=int(c["SCORE_B"]) if "SCORE_B" in c else 0; derniere_dir_str=info_3.get("derniere_direction","NEUTRE"); derniere_doji=info_3.get("derniere_est_doji",True); ichi=calculer_position_ichimoku(c); v8=analyser_v8(df)
+    is_dxy = is_dxy_paire(paire_nom, ticker)
     try:
-        df5=recuperer_donnees(ticker, interval="5m", period="5d"); df15=recuperer_donnees(ticker, interval="15m", period="5d"); df5=calculer_indicateurs(df5) if not df5.empty else df5; df15=calculer_indicateurs(df15) if not df15.empty else df15; mtf_data=calculer_mtf_vectorise(df, df5, df15); mtf_dir=mtf_data["final"][-1]; mtf_details={"2m": mtf_data["2m"][-1], "5m": mtf_data["5m"][-1], "15m": mtf_data["15m"][-1]}
+        if is_dxy:
+            df5,_ = recuperer_dxy_synthetique(interval="5m", period="5d"); df15,_ = recuperer_dxy_synthetique(interval="15m", period="5d")
+        else:
+            df5=recuperer_donnees(ticker, interval="5m", period="5d"); df15=recuperer_donnees(ticker, interval="15m", period="5d")
+        df5=calculer_indicateurs(df5) if not df5.empty else df5; df15=calculer_indicateurs(df15) if not df15.empty else df15; mtf_data=calculer_mtf_vectorise(df, df5, df15); mtf_dir=mtf_data["final"][-1]; mtf_details={"2m": mtf_data["2m"][-1], "5m": mtf_data["5m"][-1], "15m": mtf_data["15m"][-1]}
     except Exception: mtf_dir="NEUTRE"; mtf_details={"2m":"NEUTRE","5m":"NEUTRE","15m":"NEUTRE"}
     mtf={"direction": mtf_dir, "accord": f"MTF V8 3/3 {mtf_dir}", "details": mtf_details}; vol=analyser_volume(df)
     try:
@@ -586,18 +634,16 @@ def analyser_signal_live(df, ticker, is_scalping=False, use_mtf=True, use_faux=T
     base={"score_haut":sh,"score_bas":sb,"chandelier":info_3["chandelier"],"direction":info_3["direction"],"info_3":info_3,"support":support,"resistance":resistance,"proche_support":proche_sup,"proche_resistance":proche_res,"mtf":mtf,"faux":faux,"vol_intel":vol_intel,"vol":vol,"derniere_direction":derniere_dir_str,"derniere_est_doji":derniere_doji,"ichimoku":ichi,"v8":v8}
     seuil=SEUIL_SCALPING if is_scalping else SEUIL_V2PRO
     if use_mtf:
-        if sh>=seuil and mtf_dir!="HAUSSE": return {"signal":"ATTENDRE","raison":f"MTF V8 3/3 non haussier : {mtf_dir} - Il faut 2m+5m+15m HAUSSE","**base":base} if False else {"signal":"ATTENDRE","raison":f"MTF V8 3/3 non haussier : {mtf_dir} - Il faut 2m+5m+15m HAUSSE", **base}
-        if sb>=seuil and mtf_dir!="BAISSE": return {"signal":"ATTENDRE","raison":f"MTF V8 3/3 non baissier : {mtf_dir} - Il faut 2m+5m+15m BAISSE", **base}
+        if sh>=seuil and mtf_dir!="HAUSSE": return {"signal":"ATTENDRE","raison":f"MTF V8 3/3 non haussier : {mtf_dir}", **base}
+        if sb>=seuil and mtf_dir!="BAISSE": return {"signal":"ATTENDRE","raison":f"MTF V8 3/3 non baissier : {mtf_dir}", **base}
     if use_ichimoku:
         if ichi["position"]=="PAS ASSEZ DE DONNÉES": pass
         elif ichi["position"].startswith("DANS"): return {"signal":"ATTENDRE","raison":f"ICHIMOKU : {ichi['texte']}", **base}
         elif sh>=seuil and ichi["signal"]=="PUT": return {"signal":"ATTENDRE","raison":f"ICHIMOKU contraire : V2 PRO CALL mais Ichimoku PUT", **base}
         elif sb>=seuil and ichi["signal"]=="CALL": return {"signal":"ATTENDRE","raison":f"ICHIMOKU contraire : V2 PRO PUT mais Ichimoku CALL", **base}
     if use_v8:
-        if sh>=seuil and not v8["ok_call"]:
-            return {"signal":"ATTENDRE","raison":f"V8 bloque CALL : {' | '.join(v8['raisons']) if v8['raisons'] else 'Pullback / Épuisement / Distance / Force / Momentum non validé'} | Dist {v8['distance_atr']:.2f} ATR | Force {v8['force_ok']} | Pullback {v8['pullback_h']} | Momentum {v8['mom_h']}", **base}
-        if sb>=seuil and not v8["ok_put"]:
-            return {"signal":"ATTENDRE","raison":f"V8 bloque PUT : {' | '.join(v8['raisons']) if v8['raisons'] else 'Pullback / Épuisement / Distance / Force / Momentum non validé'} | Dist {v8['distance_atr']:.2f} ATR | Force {v8['force_ok']} | Pullback {v8['pullback_b']} | Momentum {v8['mom_b']}", **base}
+        if sh>=seuil and not v8["ok_call"]: return {"signal":"ATTENDRE","raison":f"V8 bloque CALL : {' | '.join(v8['raisons']) if v8['raisons'] else 'Pullback / Épuisement / Distance / Force / Momentum non validé'} | Dist {v8['distance_atr']:.2f} ATR", **base}
+        if sb>=seuil and not v8["ok_put"]: return {"signal":"ATTENDRE","raison":f"V8 bloque PUT : {' | '.join(v8['raisons']) if v8['raisons'] else 'Pullback / Épuisement / Distance / Force / Momentum non validé'} | Dist {v8['distance_atr']:.2f} ATR", **base}
     if faux["faux"] and BLOQUER_FAUX_CASSURE: return {"signal":"ATTENDRE","raison":f"FAUX CASSURE : {faux['texte']}", **base}
     if vol_intel["statut"]=="SQUEEZE" and BLOQUER_SQUEEZE: return {"signal":"ATTENDRE","raison":f"SQUEEZE : {vol_intel['texte']}", **base}
     if vol_intel["statut"]=="TROP_HAUTE" and BLOQUER_VOL_TROP_HAUTE: return {"signal":"ATTENDRE","raison":f"VOL TROP HAUTE : {vol_intel['texte']}", **base}
@@ -605,37 +651,36 @@ def analyser_signal_live(df, ticker, is_scalping=False, use_mtf=True, use_faux=T
     if info_3["nb_doji"]>=NB_DOJI_POUR_BLOQUER: return {"signal":"ATTENDRE","raison":f"Filtre : {info_3['nb_doji']} Doji", **base}
     if is_scalping:
         scalp_h=(float(c["EMA5"])>float(c["EMA9"]) and float(c["RSI7"])>50); scalp_b=(float(c["EMA5"])<float(c["EMA9"]) and float(c["RSI7"])<50)
-        if sh>=seuil and scalp_h and not proche_res and derniere_dir_str=="HAUSSE" and not derniere_doji: return {"signal":"CALL / HAUSSE","raison":f"V8 SCALPING : {sh}/6 + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']} + Dernière HAUSSE", **{**base,"direction":"HAUSSE"}}
-        if sb>=seuil and scalp_b and not proche_sup and derniere_dir_str=="BAISSE" and not derniere_doji: return {"signal":"PUT / BAISSE","raison":f"V8 SCALPING : {sb}/6 + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']} + Dernière BAISSE", **{**base,"direction":"BAISSE"}}
+        if sh>=seuil and scalp_h and not proche_res and derniere_dir_str=="HAUSSE" and not derniere_doji: return {"signal":"CALL / HAUSSE","raison":f"V8 SCALPING : {sh}/6 + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']}", **{**base,"direction":"HAUSSE"}}
+        if sb>=seuil and scalp_b and not proche_sup and derniere_dir_str=="BAISSE" and not derniere_doji: return {"signal":"PUT / BAISSE","raison":f"V8 SCALPING : {sb}/6 + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']}", **{**base,"direction":"BAISSE"}}
         return {"signal":"ATTENDRE","raison":f"SCALPING : Pas {seuil}/6 + Confirmation.", **base}
-    if sh>=seuil and not proche_res and derniere_dir_str=="HAUSSE" and not derniere_doji: return {"signal":"CALL / HAUSSE","raison":f"V8 V2 PRO : {sh}/6 HAUSSE + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']} + Dernière HAUSSE", **{**base,"direction":"HAUSSE"}}
-    if sb>=seuil and not proche_sup and derniere_dir_str=="BAISSE" and not derniere_doji: return {"signal":"PUT / BAISSE","raison":f"V8 V2 PRO : {sb}/6 BAISSE + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']} + Dernière BAISSE", **{**base,"direction":"BAISSE"}}
+    if sh>=seuil and not proche_res and derniere_dir_str=="HAUSSE" and not derniere_doji: return {"signal":"CALL / HAUSSE","raison":f"V8 V2 PRO : {sh}/6 HAUSSE + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']}", **{**base,"direction":"HAUSSE"}}
+    if sb>=seuil and not proche_sup and derniere_dir_str=="BAISSE" and not derniere_doji: return {"signal":"PUT / BAISSE","raison":f"V8 V2 PRO : {sb}/6 BAISSE + MTF 3/3 {mtf_dir} + Pullback + Ichimoku {ichi['signal']}", **{**base,"direction":"BAISSE"}}
     return {"signal":"ATTENDRE","raison":f"Filtre : Pas {seuil}/6 - H {sh}, B {sb}", **base}
 
 if use_horaire:
-    horaire=analyser_horaire(); st.subheader(f"🕐 Horaire / News - {horaire['jour']} {horaire['heure_gmt']}")
+    horaire=analyser_horaire(is_dxy=is_dxy_paire(paire, PAIRES[paire])); st.subheader(f"🕐 Horaire / Session - {horaire['jour']} {horaire['heure_gmt']} - {'DXY IQ Option' if is_dxy_paire(paire, PAIRES[paire]) else 'Forex'}")
     for av in horaire["avertissements"]:
         if av.startswith("🔴"): st.error(av)
         elif av.startswith("⚠️") or av.startswith("🟡"): st.warning(av)
         else: st.success(av)
+    if is_dxy_paire(paire, PAIRES[paire]):
+        st.info("💵 DXY IQ Option : Si session fermée (comme sur ta capture dimanche 21h), attends ouverture dimanche 23h GMT / lundi 04:04 GMT. Le code utilise DXY Synthétique pour te donner quand même une direction.")
 
-st.divider(); st.header("🧪 BACKTEST V8 - PLUS EFFICACE - 2 MODES")
+st.divider(); st.header("🧪 BACKTEST V8.3 - DXY CORRIGÉ")
 mode_backtest=st.radio("Choisis ton mode :", ["✅ Mode 1 — PRÉCIS à la minute (Recommandé)", "⚠️ Mode 2 — APPROXIMATIF (2m seulement)"], index=0)
 if mode_backtest.startswith("✅"):
-    st.success("**Mode 1 PRÉCIS :** Signaux 2m + Entrée/Sortie 1m + V8. Expirations : 1, 3, 5 min."); expiration_precis=st.selectbox("Expiration Mode 1 Précis :", [1,3,5], index=1)
+    st.success("**Mode 1 PRÉCIS :** Signaux 2m + Entrée/Sortie 1m + V8.3 DXY. Expirations : 1, 3, 5 min."); expiration_precis=st.selectbox("Expiration Mode 1 Précis :", [1,3,5], index=1)
 else:
     st.error("**Mode 2 APPROXIMATIF :** Uniquement 2m. Ne pas utiliser pour décider du réel."); expiration_approx=st.selectbox("Expiration Mode 2 Approximatif :", [2,4,6], index=1)
 
-if st.button("🧪 LANCER LE BACKTEST V8", type="secondary"):
+if st.button("🧪 LANCER LE BACKTEST V8.3 DXY", type="secondary"):
     is_scalp_bt=mode.startswith("⚡"); ticker_bt=PAIRES[paire]
-    if paire=="Dollar Index (DXY)":
-        df_test=recuperer_donnees(ticker_bt, interval="2m", period="1d")
-        if df_test.empty: ticker_bt="^DXY"
     start_time=datetime.now()
     if mode_backtest.startswith("✅"):
-        with st.spinner(f"Backtest Mode 1 Précis + V8..."): resultat_bt, erreur_bt=faire_backtest_precis_1m_performant(ticker_bt, is_scalping=is_scalp_bt, expiration_min=expiration_precis, use_ichimoku_bt=use_ichimoku, use_v8_bt=use_v8)
+        with st.spinner(f"Backtest Mode 1 Précis + V8.3 DXY..."): resultat_bt, erreur_bt=faire_backtest_precis_1m_performant(ticker_bt, is_scalping=is_scalp_bt, expiration_min=expiration_precis, use_ichimoku_bt=use_ichimoku, use_v8_bt=use_v8, paire_nom=paire)
     else:
-        with st.spinner(f"Backtest Mode 2 + V8..."): resultat_bt, erreur_bt=faire_backtest_approximatif_2m_performant(ticker_bt, is_scalping=is_scalp_bt, expiration_min=expiration_approx, use_ichimoku_bt=use_ichimoku, use_v8_bt=use_v8)
+        with st.spinner(f"Backtest Mode 2 + V8.3 DXY..."): resultat_bt, erreur_bt=faire_backtest_approximatif_2m_performant(ticker_bt, is_scalping=is_scalp_bt, expiration_min=expiration_approx, use_ichimoku_bt=use_ichimoku, use_v8_bt=use_v8, paire_nom=paire)
     duree=(datetime.now()-start_time).total_seconds()
     if erreur_bt: st.error(erreur_bt)
     else:
@@ -651,42 +696,48 @@ if st.button("🧪 LANCER LE BACKTEST V8", type="secondary"):
         with col_p1: st.metric("💰 Profit si 1$ / trade", f"{resultat_bt['profit_total']:.2f}$ sur {resultat_bt['total_trades']} trades")
         with col_p2: st.metric("📈 Espérance / 100 trades (1$)", f"{resultat_bt['esperance_100']:.2f}$")
         if "PRÉCIS" in resultat_bt["mode_label"]:
-            if resultat_bt["taux"]>=60: st.success(f"✅ V8 Excellent : {resultat_bt['taux']:.1f}% - Tu peux tester en démo lundi.")
-            elif resultat_bt["taux"]>=55: st.warning(f"🟡 V8 Rentable mais juste : {resultat_bt['taux']:.1f}% - Teste en démo d'abord.")
-            elif resultat_bt["taux"]>=50: st.error(f"🔴 V8 Non rentable : {resultat_bt['taux']:.1f}% - NE PASSE PAS EN RÉEL.")
-            else: st.error(f"🔴 V8 Très faible : {resultat_bt['taux']:.1f}% - Change de paire / expiration. Ne force pas.")
+            if resultat_bt["taux"]>=60: st.success(f"✅ V8.3 DXY Excellent : {resultat_bt['taux']:.1f}% - Tu peux tester en démo lundi.")
+            elif resultat_bt["taux"]>=55: st.warning(f"🟡 V8.3 DXY Rentable mais juste : {resultat_bt['taux']:.1f}% - Teste en démo d'abord.")
+            elif resultat_bt["taux"]>=50: st.error(f"🔴 V8.3 DXY Non rentable : {resultat_bt['taux']:.1f}% - NE PASSE PAS EN RÉEL.")
+            else: st.error(f"🔴 V8.3 DXY Très faible : {resultat_bt['taux']:.1f}% - Change d'expiration. Ne force pas.")
         else: st.warning(f"⚠️ Ce taux {resultat_bt['taux']:.1f}% est APPROXIMATIF. Relance en Mode 1 Précis pour décider.")
         st.write(f"ATTENDRE : {resultat_bt['nb_attendre']} fois.")
         if len(resultat_bt["trades_par_jour"])>0: st.write("**Trades par jour :**", resultat_bt["trades_par_jour"])
         if len(resultat_bt["details"])>0: st.dataframe(pd.DataFrame(resultat_bt["details"]), use_container_width=True, hide_index=True)
 
-if st.button("🔍 ANALYSER MAINTENANT - V8", type="primary"):
+if st.button("🔍 ANALYSER MAINTENANT - V8.3 DXY", type="primary"):
     is_scalp=mode.startswith("⚡")
-    with st.spinner("Analyse V8..."):
-        ticker=PAIRES[paire]; df=recuperer_donnees_avec_secours(ticker, interval="2m", period="1d", paire_nom=paire)
-        if df.empty or len(df)<100: st.error("Données insuffisantes. Il faut 100+ bougies.")
+    with st.spinner("Analyse V8.3 DXY..."):
+        ticker=PAIRES[paire]; df=recuperer_donnees_avec_secours(ticker, interval="2m", period="5d", paire_nom=paire)
+        if df.empty: st.error(f"Données insuffisantes pour {paire}. Si c'est dimanche soir et DXY fermé sur IQ Option, c'est normal. Attends ouverture dimanche 23h GMT. Teste BTC/USD en attendant.")
+        elif len(df) < 80: st.error(f"Seulement {len(df)} bougies pour {paire}. Change de paire.")
         else:
             df=calculer_indicateurs(df); df=garder_que_les_bougies_fermees(df, interval="2m"); df=df.dropna(subset=["RSI","WCCI","CFO","MACD_HIST","ATR","BB_MID","EMA50","tenkan","kijun"])
             if len(df)<4: st.error("Pas assez de données.")
             else:
-                analyse=analyser_signal_live(df, ticker, is_scalping=is_scalp, use_mtf=use_mtf, use_faux=use_faux, use_vol_intel=use_vol_intel, use_volume=use_volume, use_ichimoku=use_ichimoku, use_v8=use_v8)
+                analyse=analyser_signal_live(df, ticker, is_scalping=is_scalp, use_mtf=use_mtf, use_faux=use_faux, use_vol_intel=use_vol_intel, use_volume=use_volume, use_ichimoku=use_ichimoku, use_v8=use_v8, paire_nom=paire)
                 c=df.iloc[-1]; nouvel_id=str(uuid.uuid4())[:8]
                 st.session_state.historique.append({"ID": nouvel_id, "Heure": datetime.now().strftime("%H:%M:%S"), "Paire": paire, "Mode": "SCALPING" if is_scalp else "V2 PRO", "Signal": analyse["signal"], "Prix": round(float(c["Close"]),5), "Score H": analyse["score_haut"], "Score B": analyse["score_bas"], "MTF": analyse["mtf"]["direction"], "Dernière Bougie": analyse.get("derniere_direction","?"), "Volume": analyse["vol"].get("statut","-"), "Résultat": "En attente"}); sauvegarder_historique()
-                st.divider(); st.subheader(f"🎯 SIGNAL V8 - Graphique 2m + Pullback")
-                st.metric("Prix", f"{float(c['Close']):.5f}"); st.metric("RSI 14 / RSI 7", f"{float(c['RSI']):.1f} / {float(c['RSI7']):.1f}"); st.metric("EMA 5 / 9 / 21", f"{float(c['EMA5']):.5f} / {float(c['EMA9']):.5f} / {float(c['EMA21']):.5f}"); st.metric("WCCI / CFO", f"{float(c['WCCI']):.1f} / {float(c['CFO']):.4f}"); st.metric("Dernière bougie fermée (2m)", f"{analyse.get('derniere_direction','?')} - Doji ? {analyse.get('derniere_est_doji','?')}")
-                if analyse["signal"]=="CALL / HAUSSE": st.success(f"🟢 CALL - {expiration} mn - V8 VALIDÉ"); st.warning("⚠️ Vérifie sur IQ Option. Attends 5s après fermeture.")
-                elif analyse["signal"]=="PUT / BAISSE": st.error(f"🔴 PUT - {expiration} mn - V8 VALIDÉ"); st.warning("⚠️ Vérifie sur IQ Option. Attends 5s après fermeture.")
-                else: st.warning("⏳ ATTENDRE - V8 a bloqué")
+                st.divider(); st.subheader(f"🎯 SIGNAL V8.3 - {paire} - Graphique 2m")
+                if is_dxy_paire(paire, ticker):
+                    trad = traduire_signal_dxy(analyse["signal"]); st.divider(); st.subheader("💵 TRADUCTION DXY → IQ OPTION"); st.info(trad["action"])
+                    col_d1, col_d2, col_d3 = st.columns(3)
+                    with col_d1: st.metric("DXY", trad["dxy"])
+                    with col_d2: st.metric("EUR/USD équivalent", trad["eurusd"])
+                    with col_d3: st.metric("USD/JPY équivalent", trad["usdjpy"])
+                    st.warning("⚠️ Sur IQ Option, tu cliques DXY comme sur ta capture. Prix DXY affiché ici = DXY Synthétique (proche de 103.40, pas exact à 0.01). La direction est la même.")
+                st.metric("Prix DXY Synthétique" if is_dxy_paire(paire, ticker) else "Prix", f"{float(c['Close']):.5f}"); st.metric("RSI 14 / RSI 7", f"{float(c['RSI']):.1f} / {float(c['RSI7']):.1f}"); st.metric("EMA 5 / 9 / 21", f"{float(c['EMA5']):.5f} / {float(c['EMA9']):.5f} / {float(c['EMA21']):.5f}"); st.metric("WCCI / CFO", f"{float(c['WCCI']):.1f} / {float(c['CFO']):.4f}"); st.metric("Dernière bougie fermée (2m)", f"{analyse.get('derniere_direction','?')} - Doji ? {analyse.get('derniere_est_doji','?')}")
+                if analyse["signal"]=="CALL / HAUSSE": st.success(f"🟢 CALL - {expiration} mn - V8.3 VALIDÉ"); st.warning("⚠️ Vérifie sur IQ Option. Attends 5s après fermeture. Si session DXY fermée, ne clique pas.")
+                elif analyse["signal"]=="PUT / BAISSE": st.error(f"🔴 PUT - {expiration} mn - V8.3 VALIDÉ"); st.warning("⚠️ Vérifie sur IQ Option. Attends 5s après fermeture. Si session DXY fermée, ne clique pas.")
+                else: st.warning("⏳ ATTENDRE - V8.3 a bloqué")
                 st.write("**Motif :**", analyse["raison"])
                 col1,col2=st.columns(2)
                 with col1: st.metric("Score HAUSSE", f"{analyse['score_haut']}/6")
                 with col2: st.metric("Score BAISSE", f"{analyse['score_bas']}/6")
-                st.divider(); st.subheader("🚀 V8 - Pullback + Épuisement + Distance + Force")
-                v8d=analyse["v8"]; st.info(f"Distance EMA9 : {v8d['distance_atr']:.2f} ATR (max {SEUIL_DISTANCE_EMA_ATR}) | Force : EMA 9-21 {v8d['ecart_9_21']:.2f} ATR, 21-50 {v8d['ecart_21_50']:.2f} ATR | Pullback H {v8d['pullback_h']} / B {v8d['pullback_b']} | Épuisement H {v8d['epuisement_h']} / B {v8d['epuisement_b']} | Momentum H {v8d['mom_h']} / B {v8d['mom_b']} | OK CALL {v8d['ok_call']} / OK PUT {v8d['ok_put']}")
+                st.divider(); st.subheader("🚀 V8 - Pullback + Épuisement + Distance + Force"); v8d=analyse["v8"]; st.info(f"Distance EMA9 : {v8d['distance_atr']:.2f} ATR (max {SEUIL_DISTANCE_EMA_ATR}) | Force : EMA 9-21 {v8d['ecart_9_21']:.2f} ATR, 21-50 {v8d['ecart_21_50']:.2f} ATR | Pullback H {v8d['pullback_h']} / B {v8d['pullback_b']} | Épuisement H {v8d['epuisement_h']} / B {v8d['epuisement_b']} | Momentum H {v8d['mom_h']} / B {v8d['mom_b']} | OK CALL {v8d['ok_call']} / OK PUT {v8d['ok_put']}")
                 if v8d["raisons"]: st.warning("V8 bloque : " + " | ".join(v8d["raisons"]))
                 else: st.success("V8 : Tous les filtres OK - C'est un vrai pullback, pas un sommet.")
-                st.divider(); st.subheader("☁️ Ichimoku")
-                ichi=analyse["ichimoku"]; st.info(ichi["texte"])
+                st.divider(); st.subheader("☁️ Ichimoku"); ichi=analyse["ichimoku"]; st.info(ichi["texte"])
                 if "nuage_haut" in ichi and pd.notna(ichi["nuage_haut"]):
                     col_ichi1,col_ichi2,col_ichi3,col_ichi4=st.columns(4)
                     with col_ichi1: st.metric("Tenkan (9)", f"{ichi['tenkan']:.5f}")
@@ -694,8 +745,7 @@ if st.button("🔍 ANALYSER MAINTENANT - V8", type="primary"):
                     with col_ichi3: st.metric("Senkou A", f"{ichi['senkou_a']:.5f}")
                     with col_ichi4: st.metric("Senkou B", f"{ichi['senkou_b']:.5f}")
                     st.metric("Position Prix vs Nuage", ichi["position"]); st.metric("Signal Ichimoku", ichi["signal"])
-                st.divider(); st.subheader("1️⃣ MTF V8 3/3 STRICT - 2m, 5m, 15m")
-                st.info(analyse["mtf"]["accord"]); st.dataframe(pd.DataFrame([analyse["mtf"]["details"]]), use_container_width=True)
+                st.divider(); st.subheader("1️⃣ MTF V8 3/3 STRICT - 2m, 5m, 15m"); st.info(analyse["mtf"]["accord"]); st.dataframe(pd.DataFrame([analyse["mtf"]["details"]]), use_container_width=True)
                 st.subheader("2️⃣ Faux Cassure")
                 if analyse["faux"]["faux"]: st.error(analyse["faux"]["texte"])
                 else: st.success(analyse["faux"]["texte"])
@@ -756,26 +806,27 @@ else:
             if os.path.exists(FICHIER_HISTORIQUE): os.remove(FICHIER_HISTORIQUE)
         except Exception: pass
         st.rerun()
-st.divider(); st.header(f"📸 Capture V8 - {paire} - {expiration} mn")
-if CLE_ACTIVE: mode_capture=st.radio("Mode capture :", ["🤖 AUTO IA V8", "✍️ MANUEL"], index=0, horizontal=True)
-else: mode_capture=st.radio("Mode capture :", ["✍️ MANUEL", "🤖 AUTO IA V8"], index=0, horizontal=True)
-uploaded=st.file_uploader("Envoie ta capture", type=["png","jpg","jpeg","webp"], key="capture_v8")
+
+st.divider(); st.header(f"📸 Capture V8.3 - {paire} - {expiration} mn")
+if CLE_ACTIVE: mode_capture=st.radio("Mode capture :", ["🤖 AUTO IA V8.3", "✍️ MANUEL"], index=0, horizontal=True)
+else: mode_capture=st.radio("Mode capture :", ["✍️ MANUEL", "🤖 AUTO IA V8.3"], index=0, horizontal=True)
+uploaded=st.file_uploader("Envoie ta capture", type=["png","jpg","jpeg","webp"], key="capture_v8_3")
 if uploaded:
     st.image(uploaded, caption="Ta capture", use_container_width=True)
     if mode_capture.startswith("🤖"):
         if not CLE_ACTIVE: st.error("❌ Mets ta clé dans Secrets ou utilise MANUEL.")
         else:
-            if st.button("🧠 ANALYSER MA CAPTURE V8", type="primary", use_container_width=True):
+            if st.button("🧠 ANALYSER MA CAPTURE V8.3", type="primary", use_container_width=True):
                 try:
                     mime=uploaded.type or "image/png"; encoded=base64.b64encode(uploaded.getvalue()).decode("utf-8"); data_url=f"data:{mime};base64,{encoded}"
-                    prompt=f"Tu es analyste PRO V8 IQ Option. Actif : {paire}. Expiration : {expiration} mn. Graphique 2m. Règles V8 STRICTES : MTF 3/3 (2m+5m+15m même sens) sinon ATTENDRE, Ichimoku DANS nuage = ATTENDRE, V8 Pullback : prix revenu près de EMA9, pas au sommet, Épuisement 3 bougies même sens = ATTENDRE, Distance EMA9 < 1.2 ATR, Force EMA écartées, RSI CALL <=68, PUT >=32, Momentum MACD croissant, Minimum 5/6 V2 PRO, Heures 07h-17h GMT, pas 12h-14h. Donne tableau 3 bougies, MTF, Ichimoku, V8, Score /6, CONCLUSION CALL/PUT/ATTENDRE. Ne garantis jamais un gain."
+                    prompt=f"Tu es analyste PRO V8.3 IQ Option DXY. Actif : {paire}. Expiration : {expiration} mn. Graphique 2m. Règles V8.3 STRICTES : DXY Binaires IQ Option, MTF 3/3 (2m+5m+15m même sens) sinon ATTENDRE, Ichimoku DANS nuage = ATTENDRE, V8 Pullback : prix revenu près de EMA9, pas au sommet, Épuisement 3 bougies même sens = ATTENDRE, Distance EMA9 < 1.2 ATR, Force EMA écartées, RSI CALL <=68, PUT >=32, Momentum MACD croissant, Minimum 5/6 V2 PRO, Horaires DXY IQ Option : ouvert lundi-vendredi, fermé samedi/dimanche jusqu'à dimanche 23h GMT. Donne tableau 3 bougies, MTF, Ichimoku, V8, Score /6, CONCLUSION CALL/PUT/ATTENDRE sur DXY. Ne garantis jamais un gain."
                     with st.spinner("🧠 L'IA analyse..."):
                         resp=client_auto.chat.completions.create(model="gpt-4o-mini", messages=[{"role":"user","content":[{"type":"text","text":prompt},{"type":"image_url","image_url":{"url":data_url,"detail":"high"}}]}], max_tokens=1200); st.markdown(resp.choices[0].message.content)
                 except Exception as e: st.error(f"Erreur IA : {e}")
     else:
-        c1,c2,c3=st.columns(3); b3_m=c1.selectbox("Bougie -3 (2m)", ["Verte","Rouge","Doji"], key="b3_v8"); b2_m=c2.selectbox("Bougie -2 (2m)", ["Verte","Rouge","Doji"], key="b2_v8"); b1_m=c3.selectbox("Bougie -1 (2m) - Dernière fermée", ["Verte","Rouge","Doji"], key="b1_v8")
-        mtf_m=st.selectbox("5m et 15m ?", ["HAUSSE comme 2m","BAISSE comme 2m","Contraire à 2m (CONFLIT)","Je ne sais pas"], key="mtf_v8"); ichi_m=st.selectbox("Prix par rapport au nuage Ichimoku ?", ["DESSUS du nuage (Vert)","DESSOUS du nuage (Rouge)","DANS le nuage","Je ne sais pas"], key="ichi_v8")
-        if st.button("🔎 ANALYSER V8 - SANS CLÉ", type="primary", use_container_width=True):
+        c1,c2,c3=st.columns(3); b3_m=c1.selectbox("Bougie -3 (2m)", ["Verte","Rouge","Doji"], key="b3_v8_3"); b2_m=c2.selectbox("Bougie -2 (2m)", ["Verte","Rouge","Doji"], key="b2_v8_3"); b1_m=c3.selectbox("Bougie -1 (2m) - Dernière fermée", ["Verte","Rouge","Doji"], key="b1_v8_3")
+        mtf_m=st.selectbox("5m et 15m ?", ["HAUSSE comme 2m","BAISSE comme 2m","Contraire à 2m (CONFLIT)","Je ne sais pas"], key="mtf_v8_3"); ichi_m=st.selectbox("Prix par rapport au nuage Ichimoku ?", ["DESSUS du nuage (Vert)","DESSOUS du nuage (Rouge)","DANS le nuage","Je ne sais pas"], key="ichi_v8_3")
+        if st.button("🔎 ANALYSER V8.3 - SANS CLÉ", type="primary", use_container_width=True):
             nb_v=[b3_m,b2_m,b1_m].count("Verte"); nb_r=[b3_m,b2_m,b1_m].count("Rouge")
             if mtf_m=="Contraire à 2m (CONFLIT)": st.warning("⏳ ATTENDRE - MTF CONFLIT.")
             elif ichi_m=="DANS le nuage": st.warning("⏳ ATTENDRE - Prix DANS le nuage - Ne jamais trader dans le nuage.")
@@ -785,4 +836,4 @@ if uploaded:
             elif nb_v==2 and b1_m=="Verte" and ichi_m=="DESSUS du nuage (Vert)": st.success(f"🟢 CALL {paire} - Pullback + 2 Vertes + Prix DESSUS nuage")
             elif nb_r==2 and b1_m=="Rouge" and ichi_m=="DESSOUS du nuage (Rouge)": st.error(f"🔴 PUT {paire} - Pullback + 2 Rouges + Prix DESSOUS nuage")
             else: st.warning(f"🟡 ATTENDRE {paire} - V8 : Pas de pullback confirmé.")
-st.caption("V8 - Pullback + Épuisement + Distance + Force + MTF 3/3 | Lundi = DÉMO uniquement.")
+st.caption("V8.3 DXY CORRIGÉ - DXY Synthétique + Horaires IQ Option DXY + V8 Efficace | Lundi = DÉMO uniquement. Ne trade pas en réel avec $0.17.")
