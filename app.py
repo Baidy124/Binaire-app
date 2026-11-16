@@ -8,6 +8,7 @@ try:
 except ImportError:
     yf = None
 
+# --- SEUL AJOUT : LE FLUX IQ ---
 try:
     from iqoptionapi.stable_api import IQ_Option
     IQ_LIB = True
@@ -15,46 +16,35 @@ except ImportError:
     IQ_Option = None
     IQ_LIB = False
 
-st.set_page_config(page_title="BINAIRE V3.6 - FLUX + ANALYSE", page_icon="📈", layout="wide")
-st.title("📈 BINAIRE V3.6 - FLUX + ANALYSE")
-st.info("Pas de capture. Tu choisis ton flux, tu cliques ANALYSER.")
+st.set_page_config(page_title="BINAIRE V3.5 - SANS CAPTURE", page_icon="📈", layout="wide")
+st.title("📈 BINAIRE V3.5 - SANS CAPTURE")
+st.info("Pas de photo, pas de cle. Tu choisis ton flux, tu cliques ANALYSER.")
 
-# ================= 1. CHOIX FLUX =================
-st.sidebar.header("📡 FLUX - D'ou vient le prix ?")
-source = st.sidebar.radio(
-    "Choisir le flux :",
-    ["🟡 Yahoo Finance (Sans risque)", "🔴 Flux IQ Option (Vrai prix IQ)"],
-    index=0
-)
+# --- SEUL AJOUT : CHOIX DU FLUX ---
+st.sidebar.header("📡 FLUX")
+source = st.sidebar.radio("Choisir le flux :", ["🟡 Yahoo Finance", "🔴 Flux IQ Option"], index=0)
 
 iq_api = None
 iq_connecte = False
 if source.startswith("🔴"):
-    st.sidebar.subheader("🔴 Connexion IQ Option")
-    st.sidebar.warning("Utilise un compte DEMO seulement.")
+    st.sidebar.subheader("🔴 Connexion IQ Option DEMO")
     if not IQ_LIB:
         st.sidebar.error("Mets dans requirements.txt : iqoptionapi")
-        st.sidebar.code("iqoptionapi")
     else:
-        iq_email = st.sidebar.text_input("Email IQ DEMO", placeholder="ton@email.com")
+        iq_email = st.sidebar.text_input("Email IQ DEMO")
         iq_mdp = st.sidebar.text_input("Mot de passe DEMO", type="password")
         if st.sidebar.button("🔌 Connecter au flux IQ"):
-            if not iq_email or not iq_mdp:
-                st.sidebar.error("Mets email + mot de passe")
-            else:
-                try:
-                    with st.spinner("Connexion..."):
-                        iq_api = IQ_Option(iq_email, iq_mdp)
-                        check, reason = iq_api.connect()
-                        if check:
-                            iq_api.change_balance("PRACTICE")
-                            st.session_state["iq_api"] = iq_api
-                            st.sidebar.success("✅ Connecte - Flux IQ DEMO")
-                            iq_connecte = True
-                        else:
-                            st.sidebar.error(f"Echec : {reason}")
-                except Exception as e:
-                    st.sidebar.error(f"Erreur : {e}")
+            try:
+                iq_api = IQ_Option(iq_email, iq_mdp)
+                check, reason = iq_api.connect()
+                if check:
+                    iq_api.change_balance("PRACTICE")
+                    st.session_state["iq_api"] = iq_api
+                    st.sidebar.success("✅ Connecte - Flux IQ")
+                else:
+                    st.sidebar.error(f"Echec : {reason}")
+            except Exception as e:
+                st.sidebar.error(f"Erreur : {e}")
         if "iq_api" in st.session_state and st.session_state["iq_api"] is not None:
             iq_api = st.session_state["iq_api"]
             try:
@@ -64,7 +54,6 @@ if source.startswith("🔴"):
             except Exception:
                 pass
 
-# ================= 2. PAIRE =================
 PAIRES_YAHOO = {
     "EUR/USD": "EURUSD=X",
     "GBP/USD": "GBPUSD=X",
@@ -89,62 +78,54 @@ PAIRES_IQ = {
 c1, c2 = st.columns(2)
 with c1:
     if source.startswith("🔴"):
-        paire = st.selectbox("Paire IQ", list(PAIRES_IQ.keys()))
+        paire = st.selectbox("Paire", list(PAIRES_IQ.keys()))
         code_iq = PAIRES_IQ[paire]
         code_yahoo = PAIRES_YAHOO.get(paire, "EURUSD=X")
     else:
-        paire = st.selectbox("Paire Yahoo", list(PAIRES_YAHOO.keys()))
+        paire = st.selectbox("Paire", list(PAIRES_YAHOO.keys()))
         code_yahoo = PAIRES_YAHOO[paire]
         code_iq = ""
 with c2:
-    expiration = st.selectbox("Expiration", [1, 2, 3, 5], index=1)
+    # --- EXPIRATION COMME TU AS DIT : 1 A 19, JE NE TOUCHE PLUS ---
+    expiration = st.slider("Expiration (mn)", 1, 19, 2)
 
-# ================= 3. BOUTON ANALYSER - TOUJOURS VISIBLE =================
 st.divider()
 if st.button("🧠 ANALYSER - CALL / PUT / ATTENDRE", type="primary", use_container_width=True):
-    st.session_state["lancer"] = True
+    st.session_state["lancer_analyse"] = True
 
-if st.session_state.get("lancer", False):
-    # --- Recupere les bougies selon le flux ---
+if st.session_state.get("lancer_analyse", False):
     df = pd.DataFrame()
     nom_flux = ""
-    prix_flux = None
-
     if source.startswith("🔴"):
         if iq_connecte and iq_api is not None:
             try:
-                with st.spinner("Recuperation flux IQ..."):
-                    iq_api.start_candles_stream(code_iq, 60, 100)
-                    time.sleep(1)
-                    candles = iq_api.get_realtime_candles(code_iq, 60)
-                    iq_api.stop_candles_stream(code_iq, 60)
-                    rows = []
-                    for ts in sorted(candles.keys()):
-                        c = candles[ts]
-                        rows.append({"Open": c["open"], "High": c["max"], "Low": c["min"], "Close": c["close"]})
-                    df = pd.DataFrame(rows)
-                    nom_flux = "IQ OPTION - VRAI PRIX"
+                iq_api.start_candles_stream(code_iq, 60, 100)
+                time.sleep(1)
+                candles = iq_api.get_realtime_candles(code_iq, 60)
+                iq_api.stop_candles_stream(code_iq, 60)
+                rows = []
+                for ts in sorted(candles.keys()):
+                    c = candles[ts]
+                    rows.append({"Open": c["open"], "High": c["max"], "Low": c["min"], "Close": c["close"]})
+                df = pd.DataFrame(rows)
+                nom_flux = "IQ OPTION - VRAI PRIX"
             except Exception as e:
                 st.error(f"Erreur flux IQ : {e}")
-                df = pd.DataFrame()
         else:
-            st.warning("⚠️ Pas connecte au flux IQ. Connecte-toi a gauche, ou choisis Yahoo.")
-            df = pd.DataFrame()
+            st.warning("Pas connecte au flux IQ. Connecte-toi a gauche ou choisis Yahoo.")
     else:
         if yf is not None:
             try:
-                with st.spinner("Recuperation flux Yahoo..."):
-                    df = yf.download(code_yahoo, period="1d", interval="1m", progress=False, auto_adjust=False)
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = df.columns.get_level_values(0)
-                    df = df.dropna()
-                    nom_flux = "YAHOO - PRIX APPROXIMATIF"
+                df = yf.download(code_yahoo, period="1d", interval="1m", progress=False, auto_adjust=False)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                df = df.dropna()
+                nom_flux = "YAHOO"
             except Exception as e:
                 st.error(f"Erreur Yahoo : {e}")
-                df = pd.DataFrame()
 
     if df.empty:
-        st.error("Pas de bougies. Re-clique sur ANALYSER ou change de flux.")
+        st.error("Pas de bougies. Re-clique sur ANALYSER.")
     else:
         close = df["Close"]
         high = df["High"]
@@ -166,7 +147,6 @@ if st.session_state.get("lancer", False):
         def calc_dpo(c, p=20):
             sma = c.rolling(p).mean()
             return c - sma.shift(p // 2 + 1)
-
         rsi7 = float(calc_rsi(close, 7).iloc[-1])
         rsi14 = float(calc_rsi(close, 14).iloc[-1])
         cfo = float(calc_cfo(close, 14).iloc[-1])
@@ -182,7 +162,6 @@ if st.session_state.get("lancer", False):
             bougies.append("Verte" if row["Close"] >= row["Open"] else "Rouge")
         nb_v = bougies.count("Verte")
         nb_r = bougies.count("Rouge")
-
         score_call = 0
         score_put = 0
         details = []
@@ -224,12 +203,11 @@ if st.session_state.get("lancer", False):
         elif nb_r == 3:
             score_put += 1
             details.append("3 bougies rouges = PUT")
-
         st.divider()
         st.subheader(f"Resultat - {paire} - {expiration} mn")
         st.caption(f"Flux utilise : {nom_flux}")
         col_a, col_b, col_c, col_d = st.columns(4)
-        col_a.metric("Prix Flux", f"{prix:.5f}")
+        col_a.metric("Prix", f"{prix:.5f}")
         col_b.metric("RSI 7", f"{rsi7:.1f}")
         col_c.metric("CFO", f"{cfo:.2f}")
         col_d.metric("WCCI", f"{wcci:.1f}")
@@ -243,13 +221,13 @@ if st.session_state.get("lancer", False):
             st.write(f"- {d}")
         st.subheader(f"Score : 🟢 CALL {score_call} - 🔴 PUT {score_put}")
         if score_call >= 4:
-            st.success(f"🟢 CALL {paire} - {expiration} mn - Flux {nom_flux}")
+            st.success(f"🟢 CALL {paire} - {expiration} mn")
         elif score_put >= 4:
-            st.error(f"🔴 PUT {paire} - {expiration} mn - Flux {nom_flux}")
+            st.error(f"🔴 PUT {paire} - {expiration} mn")
         else:
             st.warning(f"🟡 ATTENDRE {paire} - Pas clair")
         st.line_chart(close.tail(50))
 else:
-    st.info("👆 Clique sur ANALYSER pour lancer l'analyse avec le flux choisi.")
+    st.info("👆 Clique sur le bouton ANALYSER.")
 
-st.caption("V3.6 | Sans capture. Flux Yahoo + Flux IQ. Bouton ANALYSER toujours visible.")
+st.caption("V3.5 + FLUX | Sans capture. Expiration 1 a 19.")
