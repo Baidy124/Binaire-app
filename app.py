@@ -581,3 +581,186 @@ else:
         st.rerun()
 
 st.caption(f"V3.1 + ICHIMOKU + MTF | Niveau {NIVEAU_FILTRE} | Pour changer, modifie NIVEAU_FILTRE en haut.")
+
+
+from datetime import datetime, timezone
+import pandas as pd
+import streamlit as st
+
+# ==========================================
+# MODULE 1 : SYNCHRONISATION DES PRIX
+# ==========================================
+
+def verifier_prix(iq_price, robot_price, tolerance_pct=0.01):
+    if iq_price <= 0 or robot_price <= 0:
+        return False, None, "PRIX INVALIDE"
+
+    ecart = abs(iq_price - robot_price)
+    ecart_pct = (ecart / iq_price) * 100
+
+    ok = ecart_pct <= tolerance_pct
+
+    return (
+        ok,
+        ecart_pct,
+        "PRIX SYNCHRONISÉS" if ok else "ÉCART DE PRIX"
+    )
+
+
+# ==========================================
+# MODULE 2 : CONTRÔLE DU RETARD
+# ==========================================
+
+def verifier_retard(df, max_age_seconds=240):
+    if df is None or df.empty:
+        return False, None, "AUCUNE DONNÉE"
+
+    derniere_date = pd.Timestamp(df.index[-1])
+
+    if derniere_date.tzinfo is None:
+        derniere_date = derniere_date.tz_localize("UTC")
+    else:
+        derniere_date = derniere_date.tz_convert("UTC")
+
+    maintenant = pd.Timestamp.now(tz="UTC")
+    retard = (maintenant - derniere_date).total_seconds()
+
+    ok = 0 <= retard <= max_age_seconds
+
+    return (
+        ok,
+        retard,
+        "DONNÉES RÉCENTES" if ok else "DONNÉES EN RETARD"
+    )
+
+
+# ==========================================
+# MODULE 3 : CONTRÔLE DES BOUGIES
+# ==========================================
+
+def verifier_bougies(df, timeframe="2m"):
+    if df is None or len(df) < 30:
+        return False, "HISTORIQUE INSUFFISANT"
+
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return False, "HORODATAGE INVALIDE"
+
+    durees = {
+        "1m": 60,
+        "2m": 120,
+        "5m": 300,
+        "15m": 900,
+        "30m": 1800
+    }
+
+    if timeframe not in durees:
+        return False, "TIMEFRAME NON RECONNU"
+
+    differences = df.index.to_series().diff().dropna()
+    intervalle = differences.dt.total_seconds()
+
+    intervalle_normal = intervalle.median()
+    attendu = durees[timeframe]
+
+    if abs(intervalle_normal - attendu) > 2:
+        return False, "INTERVALLE DES BOUGIES INCORRECT"
+
+    return True, "BOUGIES COHÉRENTES"
+
+
+# ==========================================
+# MODULE 4 : FILTRE ANTI-CONFLIT
+# ==========================================
+
+def filtre_anti_conflit(direction_indicateurs,
+                        direction_mtf,
+                        direction_ichimoku):
+
+    directions = [
+        direction_indicateurs.upper(),
+        direction_mtf.upper(),
+        direction_ichimoku.upper()
+    ]
+
+    valides = {"HAUT", "BAS"}
+
+    if not all(d in valides for d in directions):
+        return False, "DIRECTION INVALIDE"
+
+    if len(set(directions)) != 1:
+        return False, "CONFLIT DE TENDANCE - ATTENDRE"
+
+    return True, "CONFIRMATION DES DIRECTIONS"
+
+# Remplacer ces valeurs par les directions
+# calculées par tes indicateurs existants.
+
+direction_indicateurs = "BAS"
+direction_mtf = "HAUT"
+direction_ichimoku = "BAS"
+
+conflit_ok, message_conflit = filtre_anti_conflit(
+    direction_indicateurs,
+    direction_mtf,
+    direction_ichimoku
+)
+
+signal_autorise = securite_ok and conflit_ok
+
+if not signal_autorise:
+    st.error("⛔ ATTENDRE - SIGNAL BLOQUÉ")
+    st.warning(message_conflit)
+else:
+    st.success("✅ CONDITIONS TECHNIQUES RÉUNIES")
+    st.info("Direction : " + direction_indicateurs)
+
+# Ces valeurs sont des exemples.
+# Branche les véritables résultats de ton robot.
+
+# ==========================================
+# TABLEAU DE SÉCURITÉ DU ROBOT
+# ==========================================
+
+st.subheader("🛡️ CONTRÔLE DE FIABILITÉ DES SIGNAUX")
+
+iq_price = st.number_input(
+    "Prix affiché sur IQ Option",
+    min_value=0.0,
+    value=0.0,
+    format="%.6f"
+)
+
+if "df" in locals() and df is not None and not df.empty:
+
+    robot_price = float(df["Close"].iloc[-1])
+
+    prix_ok, ecart, message_prix = verifier_prix(
+        iq_price, robot_price
+    ) if iq_price > 0 else (
+        False, None, "PRIX IQ OPTION NON RENSEIGNÉ"
+    )
+
+    retard_ok, retard, message_retard = verifier_retard(df)
+
+    bougies_ok, message_bougies = verifier_bougies(
+        df, "2m"
+    )
+
+    st.write("Prix robot :", robot_price)
+    st.write("Prix IQ Option :", iq_price)
+
+    st.write("Synchronisation :", message_prix)
+
+    st.write(
+        "Retard :",
+        f"{retard:.0f} secondes" if retard is not None else "Inconnu"
+    )
+
+    st.write("Bougies :", message_bougies)
+
+    securite_ok = prix_ok and retard_ok and bougies_ok
+
+    if securite_ok:
+        st.success("CONTRÔLES TECHNIQUES VALIDÉS")
+    else:
+        st.error("SIGNAL BLOQUÉ : CONTRÔLES NON VALIDÉS")
