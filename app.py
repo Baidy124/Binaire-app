@@ -1,409 +1,583 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import sqlite3
+import os, base64
 from datetime import datetime, timezone
-from pathlib import Path
 
-APP_TITLE = "IQ OPTION AI TRADER — MULTI AGENTS V1.0"
-DB_PATH = Path("trading_journal.db")
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
-st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide")
+@st.cache_resource
+def get_client_auto():
+    cle = None
+    try:
+        cle = st.secrets.get("OPENAI_API_KEY", None)
+    except Exception:
+        cle = None
+    if not cle:
+        cle = os.getenv("OPENAI_API_KEY")
+    if not cle or not str(cle).startswith("sk-"):
+        return None
+    try:
+        return OpenAI(api_key=str(cle).strip())
+    except Exception:
+        return None
 
-# -----------------------------
-# DATA + INDICATORS
-# -----------------------------
-def normalize_ohlcv(df):
+client_auto = get_client_auto()
+CLE_ACTIVE = client_auto is not None
+
+# ================= ⚙️ NIVEAU FILTRE =================
+NIVEAU_FILTRE = "DOUX"  # "TRES_DOUX" / "DOUX" / "MOYEN"
+
+if NIVEAU_FILTRE == "TRES_DOUX":
+    SEUIL_V2PRO = 3
+    SEUIL_SCALPING = 2
+    MTF_MIN_ACCORD = 2
+    BLOQUER_FAUX_CASSURE = False
+    BLOQUER_SQUEEZE = False
+    BLOQUER_VOL_TROP_HAUTE = False
+    BLOQUER_VOLUME_FAIBLE = False
+    NB_DOJI_POUR_BLOQUER = 4
+    SEUIL_VOLATILITE = 0.000005
+    DISTANCE_SUPPORT = 0.05
+    SEUIL_CORPS_BOUGIE = 0.05
+elif NIVEAU_FILTRE == "MOYEN":
+    SEUIL_V2PRO = 5
+    SEUIL_SCALPING = 4
+    MTF_MIN_ACCORD = 3
+    BLOQUER_FAUX_CASSURE = True
+    BLOQUER_SQUEEZE = True
+    BLOQUER_VOL_TROP_HAUTE = True
+    BLOQUER_VOLUME_FAIBLE = True
+    NB_DOJI_POUR_BLOQUER = 2
+    SEUIL_VOLATILITE = 0.00002
+    DISTANCE_SUPPORT = 0.20
+    SEUIL_CORPS_BOUGIE = 0.12
+else:  # DOUX
+    SEUIL_V2PRO = 3
+    SEUIL_SCALPING = 2
+    MTF_MIN_ACCORD = 2
+    BLOQUER_FAUX_CASSURE = False
+    BLOQUER_SQUEEZE = False
+    BLOQUER_VOL_TROP_HAUTE = True
+    BLOQUER_VOLUME_FAIBLE = False
+    NB_DOJI_POUR_BLOQUER = 3
+    SEUIL_VOLATILITE = 0.000008
+    DISTANCE_SUPPORT = 0.08
+    SEUIL_CORPS_BOUGIE = 0.06
+
+st.set_page_config(page_title="BINAIRE V3.1 + ICHIMOKU + MTF", page_icon="📈", layout="wide")
+st.title("📈 BINAIRE V3.1 + ICHIMOKU + MTF")
+st.caption(f"Niveau : {NIVEAU_FILTRE} | V2 PRO {SEUIL_V2PRO}/6 | Scalping {SEUIL_SCALPING}/6 | MTF {MTF_MIN_ACCORD}/3")
+
+if CLE_ACTIVE:
+    st.success("✅ Clé OpenAI AUTOMATIQUE active")
+else:
+    st.info("ℹ️ Pas de clé. Capture en MANUEL.")
+
+if "historique" not in st.session_state:
+    st.session_state.historique = []
+
+PAIRES = {
+    "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X", "USD/CHF": "USDCHF=X",
+    "AUD/USD": "AUDUSD=X", "NZD/USD": "NZDUSD=X", "USD/CAD": "USDCAD=X",
+    "EUR/GBP": "EURGBP=X", "EUR/JPY": "EURJPY=X", "EUR/CHF": "EURCHF=X", "EUR/AUD": "EURAUD=X",
+    "EUR/CAD": "EURCAD=X", "EUR/NZD": "EURNZD=X",
+    "GBP/JPY": "GBPJPY=X", "GBP/CHF": "GBPCHF=X", "GBP/AUD": "GBPAUD=X", "GBP/CAD": "GBPCAD=X",
+    "AUD/JPY": "AUDJPY=X", "AUD/CAD": "AUDCAD=X", "AUD/CHF": "AUDCHF=X",
+    "CAD/JPY": "CADJPY=X", "CHF/JPY": "CHFJPY=X", "NZD/JPY": "NZDJPY=X", "NZD/CAD": "NZDCAD=X",
+    "USD/BRL": "USDBRL=X", "EUR/BRL": "EURBRL=X", "USD/MXN": "USDMXN=X", "USD/ZAR": "USDZAR=X",
+    "USD/TRY": "USDTRY=X", "USD/INR": "USDINR=X",
+    "BTC/USD": "BTC-USD", "ETH/USD": "ETH-USD", "LTC/USD": "LTC-USD", "XRP/USD": "XRP-USD",
+    "Dollar Index (DXY)": "DX-Y.NYB"
+}
+
+col_m1, col_m2 = st.columns(2)
+with col_m1:
+    mode = st.radio("Mode :", [f"📊 V2 PRO - {SEUIL_V2PRO}/6", f"⚡ SCALPING - {SEUIL_SCALPING}/6"], index=0)
+with col_m2:
+    use_mtf = st.checkbox("✅ 1. Multi-Timeframe + Ichimoku", value=True)
+    use_faux = st.checkbox("✅ 2. Faux Cassure", value=True)
+    use_vol_intel = st.checkbox("✅ 4. Volatilité Intelligente", value=True)
+    use_volume = st.checkbox("✅ 6. Volume", value=True)
+    use_horaire = st.checkbox("✅ 5. Horaire / News", value=True)
+    use_ichi = st.checkbox("✅ 7. Ichimoku", value=True)
+
+col1, col2 = st.columns(2)
+with col1:
+    paire = st.selectbox("Choisir un actif", list(PAIRES.keys()))
+with col2:
+    expiration = st.slider("Expiration SCALPING", 1, 5, 2) if mode.startswith("⚡") else st.slider("Expiration V2 PRO", 1, 19, 5)
+
+@st.cache_data(ttl=30)
+def recuperer_donnees(ticker, interval="1m", period="1d"):
+    try:
+        df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=False)
+        if df.empty:
+            return pd.DataFrame()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        cols = ["Open", "High", "Low", "Close"]
+        if "Volume" in df.columns:
+            cols.append("Volume")
+        if not all(c in df.columns for c in cols[:4]):
+            return pd.DataFrame()
+        df = df[cols].copy()
+        df = df.dropna(subset=["Open","High","Low","Close"])
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+# ================= 🆕 ICHIMOKU =================
+def calculer_ichimoku(df):
     df = df.copy()
-    df.columns = [str(c).strip().lower() for c in df.columns]
-    aliases = {"datetime": "date", "timestamp": "date", "time": "date",
-               "vol": "volume"}
-    df = df.rename(columns=aliases)
-    required = ["date", "open", "high", "low", "close"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError("Colonnes manquantes : " + ", ".join(missing))
-    if "volume" not in df.columns:
-        df["volume"] = 0.0
-    df["date"] = pd.to_datetime(df["date"], errors="coerce", utc=True)
-    for c in ["open", "high", "low", "close", "volume"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
-    df = df.dropna(subset=["date", "open", "high", "low", "close"])
-    df = df.sort_values("date").drop_duplicates("date").set_index("date")
-    return df[["open", "high", "low", "close", "volume"]]
+    high = df["High"]; low = df["Low"]; close = df["Close"]
+    # Tenkan = (plus haut 9 + plus bas 9) / 2
+    df["TENKAN"] = (high.rolling(9).max() + low.rolling(9).min()) / 2
+    # Kijun = (plus haut 26 + plus bas 26) / 2
+    df["KIJUN"] = (high.rolling(26).max() + low.rolling(26).min()) / 2
+    # Senkou A = (Tenkan + Kijun) / 2, décalé 26 en avant
+    df["SENKOU_A"] = ((df["TENKAN"] + df["KIJUN"]) / 2).shift(26)
+    # Senkou B = (plus haut 52 + plus bas 52) / 2, décalé 26
+    df["SENKOU_B"] = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+    # Chikou = Close décalé 26 en arrière
+    df["CHIKOU"] = close.shift(-26)
+    return df
 
-def resample_ohlcv(df, rule):
-    return df.resample(rule).agg({
-        "open": "first", "high": "max", "low": "min",
-        "close": "last", "volume": "sum"
-    }).dropna(subset=["open", "high", "low", "close"])
+def analyser_ichimoku(df):
+    """Retourne CALL / PUT / NEUTRE + texte comme sur ta photo : 'Ichimoku CALL - DESSUS nuage'"""
+    if len(df) < 60:
+        return {"direction": "NEUTRE", "texte": "Ichimoku - Pas assez de données", "position": "NEUTRE", "tenkan_kijun": "NEUTRE"}
+    c = df.iloc[-1]
+    prix = c["Close"]
+    sa = c["SENKOU_A"]; sb = c["SENKOU_B"]
+    tenkan = c["TENKAN"]; kijun = c["KIJUN"]
+    if pd.isna(sa) or pd.isna(sb) or pd.isna(tenkan) or pd.isna(kijun):
+        return {"direction": "NEUTRE", "texte": "Ichimoku - En calcul...", "position": "NEUTRE", "tenkan_kijun": "NEUTRE"}
+    nuage_haut = max(sa, sb)
+    nuage_bas = min(sa, sb)
+    # Position prix vs nuage
+    if prix > nuage_haut:
+        position = "DESSUS nuage"
+        score_pos = 1
+    elif prix < nuage_bas:
+        position = "DESSOUS nuage"
+        score_pos = -1
+    else:
+        position = "DANS nuage"
+        score_pos = 0
+    # Tenkan vs Kijun
+    if tenkan > kijun:
+        tk = "Tenkan > Kijun (HAUSSE)"
+        score_tk = 1
+    elif tenkan < kijun:
+        tk = "Tenkan < Kijun (BAISSE)"
+        score_tk = -1
+    else:
+        tk = "Tenkan = Kijun"
+        score_tk = 0
+    # Prix vs Tenkan / Kijun
+    if prix > tenkan and prix > kijun:
+        score_prix = 1
+    elif prix < tenkan and prix < kijun:
+        score_prix = -1
+    else:
+        score_prix = 0
+    total = score_pos + score_tk + score_prix
+    if total >= 2:
+        direction = "CALL"
+        texte = f"Ichimoku CALL - {position}"
+    elif total <= -2:
+        direction = "PUT"
+        texte = f"Ichimoku PUT - {position}"
+    else:
+        direction = "NEUTRE"
+        texte = f"Ichimoku NEUTRE - {position}"
+    return {"direction": direction, "texte": texte, "position": position, "tenkan_kijun": tk,
+            "prix": prix, "tenkan": tenkan, "kijun": kijun, "senkou_a": sa, "senkou_b": sb,
+            "nuage_haut": nuage_haut, "nuage_bas": nuage_bas, "score": total}
 
-def add_indicators(df):
-    x = df.copy()
-    close, high, low = x["close"], x["high"], x["low"]
-
+def calculer_indicateurs(df):
+    df = df.copy()
+    close = df["Close"]; high = df["High"]; low = df["Low"]
+    df["EMA9"] = close.ewm(span=9, adjust=False).mean()
+    df["EMA21"] = close.ewm(span=21, adjust=False).mean()
+    df["EMA50"] = close.ewm(span=50, adjust=False).mean()
+    df["EMA5"] = close.ewm(span=5, adjust=False).mean()
     delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    x["rsi"] = 100 - (100 / (1 + rs))
-
+    gain = delta.clip(lower=0); loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    df["RSI"] = 100 - (100 / (1 + rs))
+    df.loc[(avg_loss == 0) & (avg_gain > 0), "RSI"] = 100
+    df.loc[(avg_gain == 0) & (avg_loss > 0), "RSI"] = 0
+    avg_gain7 = gain.ewm(alpha=1/7, adjust=False, min_periods=7).mean()
+    avg_loss7 = loss.ewm(alpha=1/7, adjust=False, min_periods=7).mean()
+    rs7 = avg_gain7 / avg_loss7.replace(0, np.nan)
+    df["RSI7"] = 100 - (100 / (1 + rs7))
+    df["BB_MID"] = close.rolling(20).mean()
+    ecart = close.rolling(20).std()
+    df["BB_UPPER"] = df["BB_MID"] + (2 * ecart)
+    df["BB_LOWER"] = df["BB_MID"] - (2 * ecart)
+    df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / df["BB_MID"]
     typical = (high + low + close) / 3
-    sma_tp = typical.rolling(14).mean()
-    mean_dev = typical.rolling(14).apply(
-        lambda a: np.mean(np.abs(a - np.mean(a))), raw=True
-    )
-    x["wcci"] = (typical - sma_tp) / (0.015 * mean_dev.replace(0, np.nan))
-
-    def _cfo_window(values):
-        values = np.asarray(values, dtype=float)
-        if len(values) < 2 or not np.isfinite(values).all():
-            return np.nan
-        xx = np.arange(len(values), dtype=float)
-        slope, intercept = np.polyfit(xx, values, 1)
-        fitted_last = intercept + slope * xx[-1]
-        return 100 * (values[-1] - fitted_last) / values[-1] if values[-1] else np.nan
-    x["cfo"] = close.rolling(14).apply(_cfo_window, raw=True)
+    moyenne = typical.rolling(14).mean()
+    deviation = typical.rolling(14).apply(lambda x: np.mean(np.abs(x - np.mean(x))), raw=True)
+    df["WCCI"] = ((typical - moyenne) / (0.015 * deviation.replace(0, np.nan)))
+    def forecast(x):
+        indices = np.arange(len(x))
+        coefficients = np.polyfit(indices, x, 1)
+        return np.polyval(coefficients, len(x) - 1)
+    prevision = close.rolling(14).apply(forecast, raw=True)
+    df["CFO"] = ((close - prevision) / close.replace(0, np.nan)) * 100
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
-    x["macd"] = ema12 - ema26
-    x["macd_signal"] = x["macd"].ewm(span=9, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    df["MACD_HIST"] = (df["MACD"] - df["MACD_SIGNAL"])
+    previous_close = close.shift(1)
+    tr = pd.concat([high - low, (high - previous_close).abs(), (low - previous_close).abs()], axis=1).max(axis=1)
+    df["ATR"] = tr.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    df["ATR_MOYEN"] = df["ATR"].rolling(50).mean()
+    df["SUPPORT"] = low.rolling(30).min().shift(1)
+    df["RESISTANCE"] = high.rolling(30).max().shift(1)
+    if "Volume" in df.columns:
+        df["VOL_MOYEN"] = df["Volume"].rolling(20).mean()
+    # 🆕 Ajout Ichimoku dans les indicateurs
+    df = calculer_ichimoku(df)
+    return df
 
-    mid = close.rolling(20).mean()
-    std = close.rolling(20).std()
-    x["bb_mid"] = mid
-    x["bb_upper"] = mid + 2 * std
-    x["bb_lower"] = mid - 2 * std
+def decrire_une_bougie(row):
+    corps = abs(row["Close"] - row["Open"])
+    amplitude = row["High"] - row["Low"]
+    if amplitude == 0:
+        return "Invalide", "NEUTRE", 0
+    ratio = corps / amplitude
+    if ratio < 0.10:
+        return "Doji", "NEUTRE", ratio
+    if row["Close"] > row["Open"]:
+        return ("Verte Forte" if ratio > 0.60 else "Verte"), "HAUSSE", ratio
+    else:
+        return ("Rouge Forte" if ratio > 0.60 else "Rouge"), "BAISSE", ratio
 
-    prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low, (high - prev_close).abs(), (low - prev_close).abs()
-    ], axis=1).max(axis=1)
-    x["atr"] = tr.rolling(14).mean()
-    x["atr_pct"] = 100 * x["atr"] / close
-
-    x["ema20"] = close.ewm(span=20, adjust=False).mean()
-    x["ema50"] = close.ewm(span=50, adjust=False).mean()
-    return x
-
-def candle_analysis(df):
-    if len(df) < 3:
-        return "Historique insuffisant", 0
-    c = df.iloc[-1]
-    body = abs(c.close - c.open)
-    span = max(c.high - c.low, 1e-12)
-    upper = c.high - max(c.open, c.close)
-    lower = min(c.open, c.close) - c.low
-
-    if body / span < 0.12:
-        return "Doji / indécision", 0
-    if lower > body * 2 and upper < body:
-        return "Rejet haussier (mèche basse)", 1
-    if upper > body * 2 and lower < body:
-        return "Rejet baissier (mèche haute)", -1
-    if c.close > c.open:
-        return "Bougie haussière", 1
-    return "Bougie baissière", -1
-
-def support_resistance(df, lookback=60):
-    sample = df.tail(lookback)
-    if sample.empty:
-        return np.nan, np.nan
-    return float(sample["low"].min()), float(sample["high"].max())
-
-def detect_false_breakout(df, level_window=20):
-    if len(df) < level_window + 2:
-        return "Données insuffisantes", 0
-    prior = df.iloc[-level_window-1:-1]
-    last = df.iloc[-1]
-    resistance = prior["high"].max()
-    support = prior["low"].min()
-    if last["high"] > resistance and last["close"] < resistance:
-        return "Possible fausse cassure haussière", -1
-    if last["low"] < support and last["close"] > support:
-        return "Possible fausse cassure baissière", 1
-    return "Aucune fausse cassure détectée", 0
-
-# -----------------------------
-# AGENTS
-# -----------------------------
-def agent_scanner(df):
-    if len(df) < 60:
-        return {"name": "SCANNER", "status": "WAIT", "detail": "60 bougies minimum recommandées"}
-    last = df.iloc[-1]
-    trend = "haussière" if last.ema20 > last.ema50 else "baissière"
-    return {"name": "SCANNER", "status": "SCAN", "detail": f"Tendance courte : {trend}"}
-
-def agent_technical(df):
-    last = df.iloc[-1]
-    score = 0
-    notes = []
-    if pd.notna(last.rsi):
-        if last.rsi > 52: score += 1
-        elif last.rsi < 48: score -= 1
-        notes.append(f"RSI {last.rsi:.1f}")
-    if pd.notna(last.wcci):
-        if last.wcci > 25: score += 1
-        elif last.wcci < -25: score -= 1
-        notes.append(f"WCCI {last.wcci:.1f}")
-    if pd.notna(last.cfo):
-        if last.cfo > 0: score += 1
-        elif last.cfo < 0: score -= 1
-        notes.append(f"CFO {last.cfo:.3f}")
-    if pd.notna(last.macd) and pd.notna(last.macd_signal):
-        if last.macd > last.macd_signal: score += 1
-        elif last.macd < last.macd_signal: score -= 1
-        notes.append("MACD haussier" if last.macd > last.macd_signal else "MACD baissier")
-    if last.close > last.bb_mid: score += 1
-    elif last.close < last.bb_mid: score -= 1
-    notes.append("Bollinger au-dessus de la médiane" if last.close > last.bb_mid else "Bollinger sous la médiane")
-    return {"name": "TECHNICAL", "score": score, "detail": " • ".join(notes)}
-
-def agent_patterns(df):
-    pattern, score = candle_analysis(df)
-    fake, fake_score = detect_false_breakout(df)
-    return {"name": "PATTERN", "score": score + fake_score,
-            "detail": f"{pattern} ; {fake}"}
-
-def agent_mtf(raw):
-    scores = []
-    descriptions = []
-    for label, rule in [("5 min", "5min"), ("15 min", "15min")]:
-        tf = resample_ohlcv(raw, rule)
-        if len(tf) < 25:
-            descriptions.append(f"{label}: historique insuffisant")
-            continue
-        t = add_indicators(tf).iloc[-1]
-        direction = 1 if t.ema20 > t.ema50 else -1
-        scores.append(direction)
-        descriptions.append(f"{label}: {'haussière' if direction > 0 else 'baissière'}")
-    return {"name": "MULTI-TIMEFRAME", "score": int(np.sign(sum(scores))) if scores else 0,
-            "detail": " ; ".join(descriptions)}
-
-def agent_risk(df, max_atr_pct, max_spread_pct=0.0):
-    last = df.iloc[-1]
-    atr_pct = float(last.atr_pct) if pd.notna(last.atr_pct) else np.nan
-    if not np.isfinite(atr_pct):
-        return {"name": "RISK MANAGER", "pass": False, "detail": "ATR indisponible"}
-    ok = atr_pct <= max_atr_pct
-    detail = f"ATR {atr_pct:.3f}% — seuil {max_atr_pct:.3f}%"
-    if not ok:
-        detail += " — volatilité trop élevée"
-    return {"name": "RISK MANAGER", "pass": ok, "detail": detail}
-
-def make_decision(df, raw, max_atr_pct, min_score):
-    scanner = agent_scanner(df)
-    technical = agent_technical(df)
-    patterns = agent_patterns(df)
-    mtf = agent_mtf(raw)
-    risk = agent_risk(df, max_atr_pct)
-
-    components = [
-        technical["score"], patterns["score"], mtf["score"]
+def analyser_trois_bougies_avance(df):
+    b3 = df.iloc[-3]; b2 = df.iloc[-2]; b1 = df.iloc[-1]
+    desc3, dir3, ratio3 = decrire_une_bougie(b3)
+    desc2, dir2, ratio2 = decrire_une_bougie(b2)
+    desc1, dir1, ratio1 = decrire_une_bougie(b1)
+    liste = [
+        {"Bougie": "Bougie -3", "Type": desc3, "Direction": dir3, "Open": round(float(b3["Open"]),5), "Close": round(float(b3["Close"]),5), "Corps %": round(ratio3*100,1)},
+        {"Bougie": "Bougie -2", "Type": desc2, "Direction": dir2, "Open": round(float(b2["Open"]),5), "Close": round(float(b2["Close"]),5), "Corps %": round(ratio2*100,1)},
+        {"Bougie": "Bougie -1", "Type": desc1, "Direction": dir1, "Open": round(float(b1["Open"]),5), "Close": round(float(b1["Close"]),5), "Corps %": round(ratio1*100,1)},
     ]
-    total = int(sum(components))
-    if not risk["pass"] or scanner["status"] == "WAIT":
-        signal = "ATTENDRE"
-    elif total >= min_score:
-        signal = "HAUT"
-    elif total <= -min_score:
-        signal = "BAS"
-    else:
-        signal = "ATTENDRE"
+    nb_hausse = sum([1 for d in [dir3, dir2, dir1] if d == "HAUSSE"])
+    nb_baisse = sum([1 for d in [dir3, dir2, dir1] if d == "BAISSE"])
+    nb_doji = sum([1 for d in [dir3, dir2, dir1] if d == "NEUTRE"])
+    figure_3 = "Aucune figure spéciale"; direction_3 = "NEUTRE"; force_3 = "Faible"
+    if nb_hausse == 3:
+        figure_3 = "🟢 3 Soldats Blancs" if b1["Close"] > b2["Close"] > b3["Close"] else "🟢 3 Bougies Vertes"; direction_3 = "HAUSSE"; force_3 = "Forte"
+    elif nb_baisse == 3:
+        figure_3 = "🔴 3 Corbeaux Noirs" if b1["Close"] < b2["Close"] < b3["Close"] else "🔴 3 Bougies Rouges"; direction_3 = "BAISSE"; force_3 = "Forte"
+    elif nb_hausse == 2 and dir1 == "HAUSSE":
+        figure_3 = "🟢 2 Vertes / 1 Rouge - Dernière verte"; direction_3 = "HAUSSE"; force_3 = "Moyenne"
+    elif nb_baisse == 2 and dir1 == "BAISSE":
+        figure_3 = "🔴 2 Rouges / 1 Verte - Dernière rouge"; direction_3 = "BAISSE"; force_3 = "Moyenne"
+    elif nb_doji >= 2:
+        figure_3 = "🟡 Beaucoup de Doji"; direction_3 = "NEUTRE"; force_3 = "Faible"
+    return {"liste": liste, "figure_3": figure_3, "direction_3": direction_3, "force_3": force_3, "nb_hausse": nb_hausse, "nb_baisse": nb_baisse, "nb_doji": nb_doji, "chandelier": figure_3, "direction": direction_3}
 
-    agents = [scanner, technical, patterns, mtf, risk]
-    return signal, total, agents
-
-# -----------------------------
-# JOURNAL
-# -----------------------------
-def init_db():
-    with sqlite3.connect(DB_PATH) as con:
-        con.execute("""
-        CREATE TABLE IF NOT EXISTS signals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT, instrument TEXT, signal TEXT, score INTEGER,
-            close REAL, decision TEXT, notes TEXT
-        )
-        """)
-
-def save_signal(instrument, signal, score, close, decision, notes):
-    init_db()
-    with sqlite3.connect(DB_PATH) as con:
-        con.execute(
-            "INSERT INTO signals(created_at,instrument,signal,score,close,decision,notes) VALUES(?,?,?,?,?,?,?)",
-            (datetime.now(timezone.utc).isoformat(), instrument, signal,
-             int(score), float(close), decision, notes)
-        )
-
-def read_journal():
-    init_db()
-    with sqlite3.connect(DB_PATH) as con:
-        return pd.read_sql_query("SELECT * FROM signals ORDER BY id DESC LIMIT 300", con)
-
-# -----------------------------
-# INTERFACE
-# -----------------------------
-st.title("📈 " + APP_TITLE)
-st.caption("DXY • Multi-agents • Analyse assistée • Validation humaine obligatoire")
-
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    instrument = st.selectbox("Instrument", ["DXY / Dollar Index"])
-    candle_rule = st.selectbox("Unité principale", ["2min", "1min", "5min"], index=0)
-    max_atr_pct = st.slider("ATR maximum (%) — filtre volatilité", 0.01, 1.50, 0.35, 0.01)
-    min_score = st.slider("Score minimum de décision", 2, 8, 4)
-    st.divider()
-    st.warning("Mode semi-automatique : aucune connexion ni exécution d'ordre IQ Option dans cette version.")
-
-tab1, tab2, tab3 = st.tabs(["🏠 Terminal", "📚 Journal", "ℹ️ Guide"])
-
-with tab1:
-    st.subheader("1. Source des cotations")
-    source_col1, source_col2 = st.columns([1, 1])
-    with source_col1:
-        uploaded = st.file_uploader("Importer un CSV de bougies", type=["csv"])
-        st.caption("Colonnes attendues : Date, Open, High, Low, Close, Volume (Volume facultatif).")
-    with source_col2:
-        st.markdown("**Source expérimentale Yahoo Finance**")
-        st.caption("Peut être retardée, limitée ou différente du flux affiché par IQ Option.")
-        fetch = st.button("Récupérer les données DXY", use_container_width=True)
-
-    raw = None
-    source_name = "Aucune source chargée"
-    if uploaded is not None:
-        try:
-            raw = normalize_ohlcv(pd.read_csv(uploaded))
-            source_name = "CSV importé"
-        except Exception as e:
-            st.error(f"CSV invalide : {e}")
-
-    if fetch:
-        try:
-            import yfinance as yf
-            with st.spinner("Récupération expérimentale des données..."):
-                y = yf.download("DX-Y.NYB", period="5d", interval="1m",
-                                auto_adjust=False, progress=False)
-                if y is None or y.empty:
-                    raise ValueError("Yahoo Finance n'a retourné aucune donnée.")
-                if isinstance(y.columns, pd.MultiIndex):
-                    y.columns = y.columns.get_level_values(0)
-                y = y.reset_index()
-                raw = normalize_ohlcv(y)
-                source_name = "Yahoo Finance — non garanti temps réel"
-                st.session_state["fetched_raw"] = raw
-                st.session_state["fetched_source"] = source_name
-        except Exception as e:
-            st.error(f"Récupération impossible : {e}")
-
-    if raw is None and "fetched_raw" in st.session_state and uploaded is None:
-        raw = st.session_state["fetched_raw"]
-        source_name = st.session_state.get("fetched_source", "Source externe")
-
-    if raw is None or len(raw) < 30:
-        st.info("Charge un CSV contenant au moins 30 bougies, ou essaie la récupération expérimentale.")
-        st.stop()
-
-    candles = resample_ohlcv(raw, candle_rule)
-    if len(candles) < 30:
-        st.warning("Pas assez de bougies après conversion. Importe davantage d'historique.")
-        st.stop()
-    data = add_indicators(candles)
-    latest = data.iloc[-1]
-    signal, score, agents = make_decision(data, raw, max_atr_pct, min_score)
-
-    st.caption(f"Source : {source_name} | Dernière bougie : {data.index[-1].strftime('%Y-%m-%d %H:%M:%S UTC')} | {len(data)} bougies")
-    if len(data) >= 2:
-        age_min = (datetime.now(timezone.utc) - data.index[-1].to_pydatetime()).total_seconds() / 60
-        if age_min > 5:
-            st.warning(f"Données anciennes : dernière bougie datant d'environ {age_min:.0f} minutes. Ne pas utiliser comme signal en direct.")
+# ================= 🆕 MTF + ICHIMOKU =================
+def analyser_mtf(ticker):
+    resultats = {}
+    resultats_ichi = {}
+    for interval, period in [("1m","1d"), ("5m","5d"), ("15m","5d")]:
+        df = recuperer_donnees(ticker, interval=interval, period=period)
+        if df.empty or len(df) < 50:
+            resultats[interval] = "NEUTRE"; resultats_ichi[interval] = "NEUTRE"; continue
+        df = calculer_indicateurs(df)
+        df = df.iloc[:-1].copy()
+        df = df.dropna(subset=["RSI","EMA50"])
+        if df.empty:
+            resultats[interval] = "NEUTRE"; resultats_ichi[interval] = "NEUTRE"; continue
+        c = df.iloc[-1]
+        # MTF classique EMA + RSI
+        if c["EMA9"] > c["EMA21"] and c["RSI"] > 50:
+            resultats[interval] = "HAUSSE"
+        elif c["EMA9"] < c["EMA21"] and c["RSI"] < 50:
+            resultats[interval] = "BAISSE"
         else:
-            st.success("Horodatage récent selon la source importée — cela ne garantit pas une cotation IQ Option identique.")
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Dernier cours", f"{latest.close:.4f}")
-    m2.metric("RSI (14)", f"{latest.rsi:.1f}" if pd.notna(latest.rsi) else "N/D")
-    m3.metric("ATR (%)", f"{latest.atr_pct:.3f}%" if pd.notna(latest.atr_pct) else "N/D")
-    m4.metric("Score agents", f"{score:+d}")
-
-    st.divider()
-    left, right = st.columns([1.1, 1])
-    with left:
-        st.subheader("2. Décision collective")
-        if signal == "HAUT":
-            st.success("PROPOSITION : HAUT")
-        elif signal == "BAS":
-            st.error("PROPOSITION : BAS")
+            resultats[interval] = "NEUTRE"
+        # 🆕 MTF Ichimoku sur chaque timeframe
+        ichi = analyser_ichimoku(df)
+        if ichi["direction"] == "CALL":
+            resultats_ichi[interval] = "HAUSSE"
+        elif ichi["direction"] == "PUT":
+            resultats_ichi[interval] = "BAISSE"
         else:
-            st.warning("PROPOSITION : ATTENDRE")
-        st.write(f"Score agrégé : **{score:+d}** | Seuil : **±{min_score}**")
-        st.caption("Ce score est une règle technique expérimentale, pas une probabilité de gain.")
-        st.subheader("3. Agents")
-        for a in agents:
-            if a["name"] == "RISK MANAGER":
-                status = "PASS" if a["pass"] else "BLOCK"
-                st.write(f"**{a['name']} — {status}**")
-            elif a["name"] == "SCANNER":
-                st.write(f"**{a['name']} — {a['status']}**")
+            resultats_ichi[interval] = "NEUTRE"
+    nb_h = list(resultats.values()).count("HAUSSE"); nb_b = list(resultats.values()).count("BAISSE")
+    nb_h_ichi = list(resultats_ichi.values()).count("HAUSSE"); nb_b_ichi = list(resultats_ichi.values()).count("BAISSE")
+    # On combine EMA + Ichimoku : si les 2 disent pareil, c'est plus fort
+    if nb_h >= MTF_MIN_ACCORD and nb_h_ichi >= MTF_MIN_ACCORD:
+        accord = f"✅ MTF HAUSSE FORT ({nb_h}/3 EMA + {nb_h_ichi}/3 Ichimoku)"; direction_mtf = "HAUSSE"
+    elif nb_b >= MTF_MIN_ACCORD and nb_b_ichi >= MTF_MIN_ACCORD:
+        accord = f"✅ MTF BAISSE FORT ({nb_b}/3 EMA + {nb_b_ichi}/3 Ichimoku)"; direction_mtf = "BAISSE"
+    elif nb_h >= MTF_MIN_ACCORD:
+        accord = f"✅ MTF HAUSSE ({nb_h}/3) - Ichimoku {nb_h_ichi}/3"; direction_mtf = "HAUSSE"
+    elif nb_b >= MTF_MIN_ACCORD:
+        accord = f"✅ MTF BAISSE ({nb_b}/3) - Ichimoku {nb_b_ichi}/3"; direction_mtf = "BAISSE"
+    elif nb_h > 0 and nb_b > 0 and nb_h != nb_b:
+        if NIVEAU_FILTRE in ["DOUX","TRES_DOUX"]:
+            if nb_h > nb_b:
+                accord = f"🟡 MTF Mixte mais HAUSSE plus forte ({nb_h} vs {nb_b})"; direction_mtf = "HAUSSE"
             else:
-                st.write(f"**{a['name']} — score {a.get('score', 0):+d}**")
-            st.caption(a["detail"])
-    with right:
-        st.subheader("4. Validation humaine")
-        st.write("Le robot propose une direction. Tu décides si tu souhaites retenir le signal.")
-        st.metric("Cours observé", f"{latest.close:.4f}")
-        st.metric("Dernière clôture", data.index[-1].strftime("%H:%M:%S UTC"))
-        note = st.text_input("Note facultative", placeholder="Ex. confirmation observée sur IQ Option")
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("✅ Accepter / enregistrer", use_container_width=True,
-                         disabled=(signal == "ATTENDRE")):
-                save_signal(instrument, signal, score, latest.close, "ACCEPTE_PAR_UTILISATEUR",
-                            " | ".join(a["detail"] for a in agents) + " | " + note)
-                st.success("Signal enregistré comme accepté. Aucun ordre n'a été envoyé.")
-        with c2:
-            if st.button("⛔ Refuser / enregistrer", use_container_width=True):
-                save_signal(instrument, signal, score, latest.close, "REFUSE_PAR_UTILISATEUR",
-                            " | ".join(a["detail"] for a in agents) + " | " + note)
-                st.info("Signal refusé et enregistré.")
-
-    st.divider()
-    st.subheader("5. Graphique et indicateurs")
-    chart = data[["close", "bb_upper", "bb_mid", "bb_lower", "ema20", "ema50"]].tail(150)
-    st.line_chart(chart)
-    st.dataframe(data.tail(12).reset_index(), use_container_width=True)
-
-with tab2:
-    st.subheader("Historique des décisions")
-    journal = read_journal()
-    if journal.empty:
-        st.info("Aucune décision enregistrée pour le moment.")
+                accord = f"🟡 MTF Mixte mais BAISSE plus forte ({nb_b} vs {nb_h})"; direction_mtf = "BAISSE"
+        else:
+            accord = "🔴 CONFLIT MTF"; direction_mtf = "CONFLIT"
+    elif nb_h == nb_b and nb_h > 0:
+        accord = "🔴 CONFLIT MTF Égal"; direction_mtf = "CONFLIT"
     else:
-        st.dataframe(journal, use_container_width=True, hide_index=True)
-        accepted = int((journal["decision"] == "ACCEPTE_PAR_UTILISATEUR").sum())
-        refused = int((journal["decision"] == "REFUSE_PAR_UTILISATEUR").sum())
-        a, b, c = st.columns(3)
-        a.metric("Décisions enregistrées", len(journal))
-        b.metric("Acceptées", accepted)
-        c.metric("Refusées", refused)
-        st.caption("Le journal enregistre les décisions, pas les résultats gagnants/perdants. Il faudra renseigner les résultats après expiration pour calculer un taux de réussite réel.")
+        accord = "🟡 MTF Neutre"; direction_mtf = "NEUTRE"
+    return {"details": resultats, "details_ichi": resultats_ichi, "accord": accord, "direction": direction_mtf, "nb_h": nb_h, "nb_b": nb_b, "nb_h_ichi": nb_h_ichi, "nb_b_ichi": nb_b_ichi}
 
-with tab3:
-    st.subheader("Guide de démarrage")
-    st.markdown("""
-1. Exporte ou prépare un fichier CSV de bougies avec les colonnes `Date, Open, High, Low, Close` et éventuellement `Volume`.
-2. Importe le CSV dans l'onglet Terminal.
-3. Vérifie la source, l'heure de la dernière bougie et la cohérence avec ton graphique IQ Option.
-4. Lis les avis des agents et la proposition HAUT / BAS / ATTENDRE.
-5. Compare toujours le signal avec le graphique réel avant de l'accepter.
-6. Enregistre ta décision. Après expiration, ajoute le résultat dans une future version du journal.
+def detecter_faux_cassure(df):
+    if len(df) < 6:
+        return {"faux": False, "texte": "Pas assez de données"}
+    c = df.iloc[-1]; res = c["RESISTANCE"]; sup = c["SUPPORT"]
+    a_casse_resistance = False; a_casse_support = False
+    for i in range(-5, -1):
+        row = df.iloc[i]
+        if pd.notna(res) and row["Close"] > res:
+            a_casse_resistance = True
+        if pd.notna(sup) and row["Close"] < sup:
+            a_casse_support = True
+    prix_actuel = c["Close"]
+    if a_casse_resistance and pd.notna(res) and prix_actuel < res:
+        return {"faux": True, "texte": "⚠️ FAUX BREAKOUT HAUSSIER - Piège !", "type": "FAUX_HAUSSE"}
+    if a_casse_support and pd.notna(sup) and prix_actuel > sup:
+        return {"faux": True, "texte": "⚠️ FAUX BREAKOUT BAISSIER - Piège !", "type": "FAUX_BAISSE"}
+    return {"faux": False, "texte": "✅ Pas de faux breakout.", "type": "OK"}
 
-### Limites de cette version
-- Elle ne se connecte pas au compte IQ Option.
-- Elle ne passe aucun ordre et ne lit pas directement le graphique affiché sur ton téléphone.
-- Yahoo Finance est une source externe expérimentale, qui peut être retardée ou différer du prix du broker.
-- Les indicateurs et seuils sont des filtres d'aide à la décision, pas des garanties.
-- Le score n'est pas une probabilité de réussite.
-""")
+def analyser_volatilite_intelligente(df):
+    c = df.iloc[-1]; atr = c["ATR"]; atr_moyen = c["ATR_MOYEN"]; bb_width = c["BB_WIDTH"]
+    bb_moyen = df["BB_WIDTH"].rolling(50).mean().iloc[-1]
+    if pd.isna(atr) or pd.isna(atr_moyen) or pd.isna(bb_width):
+        return {"statut": "NEUTRE", "texte": "Volatilité : Données insuffisantes"}
+    if bb_width < bb_moyen * 0.7:
+        return {"statut": "SQUEEZE", "texte": f"🟡 SQUEEZE : Bandes serrées ({bb_width:.4f} vs {bb_moyen:.4f})"}
+    if atr > atr_moyen * 1.8:
+        return {"statut": "TROP_HAUTE", "texte": f"🔴 Volatilité TROP HAUTE : ATR {atr:.5f} vs {atr_moyen:.5f}."}
+    if atr < atr_moyen * 0.5:
+        return {"statut": "TROP_BASSE", "texte": f"🟡 Volatilité TROP BASSE : ATR {atr:.5f} vs {atr_moyen:.5f}."}
+    return {"statut": "NORMALE", "texte": f"✅ Volatilité NORMALE : ATR {atr:.5f} vs {atr_moyen:.5f}."}
 
-st.caption("V1.0 — Prototype d'analyse et de validation humaine. Tester d'abord en compte démo.")
+def analyser_horaire():
+    now = datetime.now(timezone.utc); heure = now.hour; jour = now.weekday()
+    avertissements = []
+    if jour == 6:
+        avertissements.append("🔴 DIMANCHE : Marché fermé.")
+    if 12 <= heure < 14:
+        avertissements.append("🟡 12h-14h GMT : Pause déjeuner - Faux signaux possibles.")
+    if heure in [8, 14]:
+        avertissements.append("⚠️ HEURE DE NEWS : 8h30 / 14h30 GMT")
+    if 0 <= heure < 6:
+        avertissements.append("🟡 00h-06h GMT : Session Asie seule.")
+    if 7 <= heure < 10:
+        avertissements.append("✅ 07h-10h GMT : Ouverture Londres")
+    if 13 <= heure < 17:
+        avertissements.append("✅ 13h-17h GMT : Londres + New York")
+    if not avertissements:
+        avertissements.append(f"✅ Heure OK : {now.strftime('%H:%M')} GMT")
+    return {"heure_gmt": now.strftime("%H:%M GMT"), "jour": ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"][jour], "avertissements": avertissements}
+
+def analyser_volume(df):
+    if "Volume" not in df.columns:
+        return {"statut": "SANS_VOLUME", "texte": "⚠️ Pas de volume pour cet actif."}
+    c = df.iloc[-1]; vol = c["Volume"]; vol_moyen = c["VOL_MOYEN"]
+    if pd.isna(vol) or pd.isna(vol_moyen) or vol_moyen == 0:
+        return {"statut": "NEUTRE", "texte": "Volume : Données insuffisantes"}
+    ratio = vol / vol_moyen
+    if ratio > 1.5:
+        return {"statut": "FORT", "texte": f"✅ Volume FORT : {ratio:.2f}x", "ratio": ratio}
+    if ratio < 0.7:
+        return {"statut": "FAIBLE", "texte": f"⚠️ Volume FAIBLE : {ratio:.2f}x", "ratio": ratio}
+    return {"statut": "NORMAL", "texte": f"✅ Volume NORMAL : {ratio:.2f}x", "ratio": ratio}
+
+def analyser_signal_v3(df, ticker, is_scalping=False, use_mtf=True, use_faux=True, use_vol_intel=True, use_volume=True, use_ichi=True):
+    c = df.iloc[-1]; prix = c["Close"]; atr = c["ATR"]
+    tendance_haussiere = (c["EMA9"] > c["EMA21"] > c["EMA50"])
+    tendance_baissiere = (c["EMA9"] < c["EMA21"] < c["EMA50"])
+    indicateurs_haut = [tendance_haussiere, 50 < c["RSI"] < 70, c["WCCI"] > 0, c["CFO"] > 0, c["MACD_HIST"] > 0, prix > c["BB_MID"]]
+    indicateurs_bas = [tendance_baissiere, 30 < c["RSI"] < 50, c["WCCI"] < 0, c["CFO"] < 0, c["MACD_HIST"] < 0, prix < c["BB_MID"]]
+    info_3 = analyser_trois_bougies_avance(df)
+    chandelier = info_3["chandelier"]; direction = info_3["direction"]
+    score_haut = sum(indicateurs_haut); score_bas = sum(indicateurs_bas)
+    support = c["SUPPORT"]; resistance = c["RESISTANCE"]
+    proche_support = (pd.notna(support) and atr > 0 and prix - support <= atr * DISTANCE_SUPPORT)
+    proche_resistance = (pd.notna(resistance) and atr > 0 and resistance - prix <= atr * DISTANCE_SUPPORT)
+    volatilite_faible = (pd.isna(atr) or atr <= 0 or atr / prix < SEUIL_VOLATILITE)
+    derniere = df.iloc[-1]
+    amp_der = derniere["High"] - derniere["Low"]; corps_der = abs(derniere["Close"] - derniere["Open"])
+    bougie_faible = (amp_der <= 0 or corps_der / amp_der < SEUIL_CORPS_BOUGIE)
+    trop_de_doji = (info_3["nb_doji"] >= NB_DOJI_POUR_BLOQUER)
+    seuil = SEUIL_SCALPING if is_scalping else SEUIL_V2PRO
+    mtf = analyser_mtf(ticker) if use_mtf else {"direction": "NEUTRE", "accord": "MTF OFF", "details": {}, "details_ichi": {}}
+    faux = detecter_faux_cassure(df) if use_faux else {"faux": False, "texte": "Faux OFF"}
+    vol_intel = analyser_volatilite_intelligente(df) if use_vol_intel else {"statut": "NEUTRE", "texte": "Volatilité OFF"}
+    vol = analyser_volume(df) if use_volume else {"statut": "NEUTRE", "texte": "Volume OFF"}
+    # 🆕 Ichimoku sur 1m
+    ichi = analyser_ichimoku(df) if use_ichi else {"direction": "NEUTRE", "texte": "Ichimoku OFF", "position": "NEUTRE"}
+    # 🆕 Bonus Ichimoku : si Ichimoku dit CALL et score HAUSSE, on booste
+    if use_ichi and ichi["direction"] == "CALL" and score_haut >= 2:
+        score_haut += 1  # Bonus Ichimoku
+    if use_ichi and ichi["direction"] == "PUT" and score_bas >= 2:
+        score_bas += 1
+    base = {"score_haut": score_haut, "score_bas": score_bas, "chandelier": chandelier, "direction": direction, "info_3": info_3, "support": support, "resistance": resistance, "proche_support": proche_support, "proche_resistance": proche_resistance, "mtf": mtf, "faux": faux, "vol_intel": vol_intel, "vol": vol, "ichi": ichi}
+    # FILTRES
+    if faux["faux"] and BLOQUER_FAUX_CASSURE:
+        return {"signal": "ATTENDRE", "raison": f"FAUX CASSURE : {faux['texte']}", **base}
+    if vol_intel["statut"] == "SQUEEZE" and BLOQUER_SQUEEZE:
+        return {"signal": "ATTENDRE", "raison": f"SQUEEZE : {vol_intel['texte']}", **base}
+    if vol_intel["statut"] == "TROP_HAUTE" and BLOQUER_VOL_TROP_HAUTE:
+        return {"signal": "ATTENDRE", "raison": f"VOLATILITÉ TROP HAUTE : {vol_intel['texte']}", **base}
+    if mtf["direction"] == "CONFLIT":
+        return {"signal": "ATTENDRE", "raison": f"MTF CONFLIT : {mtf['accord']}", **base}
+    if volatilite_faible:
+        return {"signal": "ATTENDRE", "raison": "Volatilité vraiment trop faible", **base}
+    if trop_de_doji:
+        return {"signal": "ATTENDRE", "raison": f"{info_3['nb_doji']} Doji", **base}
+    if bougie_faible and direction == "NEUTRE":
+        return {"signal": "ATTENDRE", "raison": "Bougie trop petite + neutre", **base}
+    if vol.get("statut") == "FAIBLE" and BLOQUER_VOLUME_FAIBLE:
+        return {"signal": "ATTENDRE", "raison": f"VOLUME : {vol['texte']}", **base}
+    # 🆕 Ichimoku contraire TOTAL bloque : ex prix DESSOUS nuage + on veut CALL avec score faible
+    if use_ichi and ichi["direction"] == "PUT" and score_haut >= 5 and score_bas <= 1:
+        return {"signal": "ATTENDRE", "raison": f"Ichimoku totalement opposé : {ichi['texte']} vs score HAUSSE fort", **base}
+    if use_ichi and ichi["direction"] == "CALL" and score_bas >= 5 and score_haut <= 1:
+        return {"signal": "ATTENDRE", "raison": f"Ichimoku totalement opposé : {ichi['texte']} vs score BAISSE fort", **base}
+    # SIGNAL
+    if is_scalping:
+        scalp_haut_rapide = (c["EMA5"] > c["EMA9"] and c["RSI7"] > 50)
+        scalp_bas_rapide = (c["EMA5"] < c["EMA9"] and c["RSI7"] < 50)
+        if score_haut >= seuil and scalp_haut_rapide and not proche_resistance:
+            return {"signal": "CALL / HAUSSE", "raison": f"SCALPING : {score_haut}/6 + EMA5 + RSI7 + MTF {mtf['direction']} + {ichi['texte']}", **{**base, "direction": "HAUSSE"}}
+        if score_bas >= seuil and scalp_bas_rapide and not proche_support:
+            return {"signal": "PUT / BAISSE", "raison": f"SCALPING : {score_bas}/6 + EMA5 + RSI7 + MTF {mtf['direction']} + {ichi['texte']}", **{**base, "direction": "BAISSE"}}
+        if score_haut >= seuil - 1 and mtf["direction"] == "HAUSSE":
+            return {"signal": "CALL / HAUSSE", "raison": f"Score {score_haut} proche seuil + MTF HAUSSE + {ichi['texte']}", **{**base, "direction": "HAUSSE"}}
+        if score_bas >= seuil - 1 and mtf["direction"] == "BAISSE":
+            return {"signal": "PUT / BAISSE", "raison": f"Score {score_bas} proche seuil + MTF BAISSE + {ichi['texte']}", **{**base, "direction": "BAISSE"}}
+        return {"signal": "ATTENDRE", "raison": f"SCALPING : Pas {seuil}/6 + EMA5/RSI7", **base}
+    if score_haut >= seuil and not proche_resistance:
+        return {"signal": "CALL / HAUSSE", "raison": f"{score_haut}/6 HAUSSE + MTF {mtf['direction']} + {ichi['texte']} + {chandelier}", **{**base, "direction": "HAUSSE"}}
+    if score_bas >= seuil and not proche_support:
+        return {"signal": "PUT / BAISSE", "raison": f"{score_bas}/6 BAISSE + MTF {mtf['direction']} + {ichi['texte']} + {chandelier}", **{**base, "direction": "BAISSE"}}
+    if score_haut >= seuil and proche_resistance:
+        return {"signal": "ATTENDRE", "raison": "Collé à la Résistance", **base}
+    if score_bas >= seuil and proche_support:
+        return {"signal": "ATTENDRE", "raison": "Collé au Support", **base}
+    if mtf["direction"] == "HAUSSE" and score_haut > score_bas and score_haut >= 2:
+        return {"signal": "CALL / HAUSSE", "raison": f"MTF HAUSSE + Score {score_haut} > {score_bas} + {ichi['texte']}", **{**base, "direction": "HAUSSE"}}
+    if mtf["direction"] == "BAISSE" and score_bas > score_haut and score_bas >= 2:
+        return {"signal": "PUT / BAISSE", "raison": f"MTF BAISSE + Score {score_bas} > {score_haut} + {ichi['texte']}", **{**base, "direction": "BAISSE"}}
+    # 🆕 Dernier recours Ichimoku : si Ichimoku seul dit CALL/PUT et score >=2, on prend
+    if use_ichi and ichi["direction"] == "CALL" and score_haut >= 2 and score_haut > score_bas:
+        return {"signal": "CALL / HAUSSE", "raison": f"Ichimoku CALL + Score {score_haut} > {score_bas} : {ichi['texte']}", **{**base, "direction": "HAUSSE"}}
+    if use_ichi and ichi["direction"] == "PUT" and score_bas >= 2 and score_bas > score_haut:
+        return {"signal": "PUT / BAISSE", "raison": f"Ichimoku PUT + Score {score_bas} > {score_haut} : {ichi['texte']}", **{**base, "direction": "BAISSE"}}
+    return {"signal": "ATTENDRE", "raison": f"Pas {seuil}/6 - HAUSSE {score_haut}, BAISSE {score_bas} - {ichi['texte']}", **base}
+
+if use_horaire:
+    horaire = analyser_horaire()
+    st.subheader(f"🕐 Horaire / News - {horaire['jour']} {horaire['heure_gmt']}")
+    for av in horaire["avertissements"]:
+        if av.startswith("🔴"):
+            st.error(av)
+        elif av.startswith("⚠️") or av.startswith("🟡"):
+            st.warning(av)
+        else:
+            st.success(av)
+
+if st.button("🔍 ANALYSER MAINTENANT - V3.1 + ICHIMOKU + MTF", type="primary"):
+    is_scalp = mode.startswith("⚡")
+    with st.spinner("Analyse V3.1..."):
+        ticker = PAIRES[paire]
+        df = recuperer_donnees(ticker, interval="1m", period="1d")
+        if df.empty or len(df) < 100:
+            st.error("Données insuffisantes.")
+        else:
+            df = calculer_indicateurs(df)
+            df = df.iloc[:-1].copy()
+            df = df.dropna(subset=["RSI", "WCCI", "CFO", "MACD_HIST", "ATR", "BB_MID", "EMA50"])
+            if len(df) < 4:
+                st.error("Pas assez de données.")
+            else:
+                analyse = analyser_signal_v3(df, ticker, is_scalping=is_scalp, use_mtf=use_mtf, use_faux=use_faux, use_vol_intel=use_vol_intel, use_volume=use_volume, use_ichi=use_ichi)
+                c = df.iloc[-1]
+                st.session_state.historique.append({"Heure": datetime.now().strftime("%H:%M:%S"), "Paire": paire, "Mode": "SCALPING" if is_scalp else "V2 PRO", "Signal": analyse["signal"], "Prix": round(float(c["Close"]),5), "Score H": analyse["score_haut"], "Score B": analyse["score_bas"], "MTF": analyse["mtf"]["direction"], "Ichimoku": analyse["ichi"]["texte"], "Résultat": "En attente"})
+                st.divider()
+                st.subheader(f"🎯 SIGNAL V3.1 - {NIVEAU_FILTRE}")
+                st.metric("Prix", f"{c['Close']:.5f}")
+                st.metric("RSI 14 / RSI 7", f"{c['RSI']:.1f} / {c['RSI7']:.1f}")
+                st.metric("EMA 5 / 9 / 21", f"{c['EMA5']:.5f} / {c['EMA9']:.5f} / {c['EMA21']:.5f}")
+                if analyse["signal"] == "CALL / HAUSSE":
+                    st.success(f"🟢 CALL - {expiration} mn - VALIDÉ")
+                elif analyse["signal"] == "PUT / BAISSE":
+                    st.error(f"🔴 PUT - {expiration} mn - VALIDÉ")
+                else:
+                    st.warning("⏳ ATTENDRE")
+                st.write("**Motif :**", analyse["raison"])
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Score HAUSSE", f"{analyse['score_haut']}/6")
+                with col2:
+                    st.metric("Score BAISSE", f"{analyse['score_bas']}/6")
+                # 🆕 AFFICHAGE ICHIMOKU COMME SUR TA PHOTO
+                st.divider()
+                st.subheader("7️⃣ Ichimoku - NOUVEAU")
+                ichi = analyse["ichi"]
+                st.info(f"**{ichi['texte']}** | Tenkan : {ichi.get('tenkan',0):.5f} | Kijun : {ichi.get('kijun',0):.5f} | Nuage : {ichi.get('nuage_bas',0):.5f} - {ichi.get('nuage_haut',0):.5f} | {ichi.get('tenkan_kijun','')}")
+                if ichi["direction"] == "CALL":
+                    st.success("🟢 Ichimoku dit CALL - Prix DESSUS nuage")
+                elif ichi["direction"] == "PUT":
+                    st.error("🔴 Ichimoku dit PUT - Prix DESSOUS nuage")
+                else:
+                    st.warning("🟡 Ichimoku NEUTRE - Prix DANS nuage ou Tenkan/Kijun mélangés")
+                st.divider()
+                st.subheader("1️⃣ Multi-Timeframe + Ichimoku - NOUVEAU")
+                st.info(analyse["mtf"]["accord"])
+                st.write("**MTF EMA+RSI :**", analyse["mtf"]["details"])
+                st.write("**MTF Ichimoku :**", analyse["mtf"].get("details_ichi", {}))
+                st.dataframe(pd.DataFrame([analyse["mtf"]["details"], analyse["mtf"].get("details_ichi", {})], index=["EMA+RSI", "Ichimoku"]), use_container_width=True)
+                st.subheader("2️⃣ Faux Cassure")
+                if analyse["faux"]["faux"]:
+                    st.warning(analyse["faux"]["texte"])
+                else:
+                    st.success(analyse["faux"]["texte"])
+                st.subheader("4️⃣ Volatilité")
+                st.info(analyse["vol_intel"]["texte"])
+                st.subheader("6️⃣ Volume")
+                st.info(analyse["vol"]["texte"])
+                st.divider()
+                st.subheader("🕯️ 3. Chandeliers")
+                st.info(f"**Figure :** {analyse['info_3']['figure_3']} | **Vertes :** {analyse['info_3']['nb_hausse']} | **Rouges :** {analyse['info_3']['nb_baisse']} | **Doji :** {analyse['info_3']['nb_doji']}")
+                st.dataframe(pd.DataFrame(analyse["info_3"]["liste"]), use_container_width=True, hide_index=True)
+                st.subheader("📈 Graphique + Ichimoku")
+                st.line_chart(df[["Close","BB_UPPER","BB_MID","BB_LOWER","EMA5","EMA9","EMA21","TENKAN","KIJUN"]].tail(100))
+
+st.divider()
+st.header("📊 7. Historique")
+if len(st.session_state.historique) == 0:
+    st.info("Aucun signal encore.")
+else:
+    df_hist = pd.DataFrame(st.session_state.historique)
+    st.dataframe(df_hist, use_container_width=True, hide_index=True)
+    if st.button("🗑️ Effacer l'historique"):
+        st.session_state.historique = []
+        st.rerun()
+
+st.caption(f"V3.1 + ICHIMOKU + MTF | Niveau {NIVEAU_FILTRE} | Pour changer, modifie NIVEAU_FILTRE en haut.")
